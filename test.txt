@@ -1,0 +1,261 @@
+# PROJECT: Faceless Content Automation Engine (V1 - Free Stack)
+
+## OVERVIEW
+Build a web application that automates faceless short-form video content creation, 
+distribution, and monetization tracking. This is a "mission control" dashboard 
+similar to a social media management tool combined with an ads manager.
+
+The system manages multiple channels across platforms (Instagram, YouTube, TikTok), 
+moves content through a production pipeline, and tracks monetization via affiliate/CPA offers.
+
+## TECH STACK (ALL FREE TIER - DO NOT DEVIATE)
+- Frontend: Next.js 14 (App Router) + TypeScript + Tailwind CSS + shadcn/ui
+- State/Data fetching: TanStack Query (React Query)
+- Backend + DB + Auth: Supabase (Postgres, Row Level Security, Edge Functions)
+- LLM for scripts: Google Gemini API (free tier) via @google/generative-ai
+- TTS: ElevenLabs API (free tier)
+- B-roll: Pexels API (free)
+- Video rendering: Local FFmpeg via a Node.js script (run on user's machine)
+- Charts: Recharts
+- Icons: lucide-react
+
+## BUILD INCREMENTALLY IN THIS ORDER. 
+## Complete and confirm each phase before moving to the next.
+
+---
+
+## PHASE 1: PROJECT SETUP + DATABASE SCHEMA
+
+1. Initialize Next.js 14 with TypeScript, Tailwind, App Router, ESLint.
+2. Install and configure shadcn/ui (use "new-york" style, slate base color).
+3. Set up Supabase client (create lib/supabase/client.ts and server.ts).
+4. Create a .env.local.example file listing ALL required keys with comments:
+   - NEXT_PUBLIC_SUPABASE_URL
+   - NEXT_PUBLIC_SUPABASE_ANON_KEY
+   - GEMINI_API_KEY
+   - ELEVENLABS_API_KEY
+   - PEXELS_API_KEY
+
+5. Create SQL migration file (supabase/migrations/001_init.sql) with these tables:
+
+   TABLE channels:
+   - channel_id (uuid, pk, default gen_random_uuid())
+   - name (text)
+   - platform (text: 'instagram' | 'youtube' | 'tiktok')
+   - niche_type (text)
+   - target_demographics (text)
+   - health_score (int, default 100)
+   - posts_per_day (int, default 1)
+   - status (text: 'active' | 'paused', default 'active')
+   - auto_publish (boolean, default false)  -- the autopilot dial
+   - created_at (timestamptz, default now())
+
+   TABLE trends:
+   - trend_id (uuid, pk)
+   - source (text)
+   - keyword (text)
+   - hook_text (text)
+   - velocity_score (numeric)
+   - predicted_epc (numeric)  -- earnings per click prediction
+   - status (text: 'new' | 'approved' | 'rejected', default 'new')
+   - created_at (timestamptz, default now())
+
+   TABLE offers:
+   - offer_id (uuid, pk)
+   - name (text)
+   - offer_type (text: 'cpa_lead' | 'cpa_sale' | 'affiliate')
+   - payout (numeric)
+   - vertical (text)
+   - affiliate_url (text)
+   - cloaked_url (text)
+   - status (text: 'active' | 'paused', default 'active')
+   - created_at (timestamptz, default now())
+
+   TABLE content_objects:
+   - video_id (uuid, pk)
+   - channel_id (uuid, fk -> channels)
+   - trend_id (uuid, fk -> trends, nullable)
+   - offer_id (uuid, fk -> offers, nullable)
+   - script (text)
+   - audio_path (text, nullable)
+   - render_path (text, nullable)
+   - status (text: 'trend_queue' | 'script_review' | 'rendering' | 'ready_approve' | 'published' | 'failed', default 'script_review')
+   - thumbnail_url (text, nullable)
+   - published_at (timestamptz, nullable)
+   - created_at (timestamptz, default now())
+
+   TABLE leads:
+   - lead_id (uuid, pk)
+   - source_video_id (uuid, fk -> content_objects, nullable)
+   - contact_channel (text: 'email' | 'telegram' | 'sms')
+   - contact_value (text)
+   - consent_status (boolean, default false)
+   - intent_tags (jsonb, default '[]')
+   - created_at (timestamptz, default now())
+
+   TABLE conversions:
+   - conversion_id (uuid, pk)
+   - video_id (uuid, fk -> content_objects, nullable)
+   - offer_id (uuid, fk -> offers)
+   - click_count (int, default 0)
+   - conversion_count (int, default 0)
+   - revenue (numeric, default 0)
+   - occurred_at (timestamptz, default now())
+
+6. Add a seed file (supabase/seed.sql) with 3 sample channels (different niches), 
+   3 offers, 5 trends, and 6 content objects spread across different pipeline statuses 
+   so the UI has realistic data to show.
+
+CONFIRM PHASE 1 IS DONE, THEN CONTINUE.
+
+---
+
+## PHASE 2: APP LAYOUT + NAVIGATION
+
+1. Create a sidebar layout (app/(dashboard)/layout.tsx) with navigation to:
+   - Command Center (/) — home dashboard
+   - Channels (/channels)
+   - Content Pipeline (/pipeline)
+   - Offers (/offers)
+   - Audience Vault (/audience)
+   - Settings (/settings)
+
+2. Use a clean, dark, modern dashboard aesthetic (think Linear/Vercel dashboard style).
+   Collapsible sidebar with icons + labels. Active state highlighting.
+
+3. Add a top bar with: page title, a "+ New" contextual button, and a notification bell.
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 3: COMMAND CENTER (Dashboard Home)
+
+Build app/(dashboard)/page.tsx with:
+1. Four KPI cards in a grid: Revenue (sum from conversions), Total Leads, 
+   Posts Today (content published today), Average EPC. Each with a trend indicator.
+2. An "Alerts Needing Attention" panel that lists:
+   - Channels with health_score < 50
+   - Content_objects with status = 'failed'
+   - Offers with status = 'paused'
+   Each alert has an action button.
+3. A Recharts area chart showing revenue over the last 30 days (use conversions data, 
+   mock the daily breakdown if needed).
+All data fetched live from Supabase via React Query.
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 4: CHANNELS PAGE
+
+1. A table listing all channels: name, niche, platform (with icon), health_score 
+   (colored badge: green >70, yellow 40-70, red <40), posts/day, status, auto_publish toggle.
+2. "+ Add Channel" button opens a dialog (shadcn Dialog) with a form to create a channel 
+   (name, platform select, niche, demographics, posts/day).
+3. Each row clickable -> opens a channel detail drawer showing its content + settings.
+4. The auto_publish toggle updates the DB instantly (this is the "autopilot dial").
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 5: CONTENT PIPELINE (KANBAN - The Core Screen)
+
+1. Build a horizontal Kanban board with 5 columns matching content_objects.status:
+   "Trends Queue" | "Script Review" | "Rendering" | "Ready / Approve" | "Published"
+2. Each card shows: niche/channel name, script preview (truncated), predicted EPC, 
+   thumbnail if available, and stage-appropriate action buttons:
+   - Script Review: [Edit] [Approve ->]  (Approve moves to rendering)
+   - Rendering: show a progress indicator (mock %)
+   - Ready/Approve: [Preview] [Approve & Publish ->]
+3. Clicking a card opens a detail modal with: full script (editable), 
+   audio player (if audio_path), video preview (if render_path), 
+   assigned offer dropdown, and stage controls.
+4. Implement status transitions via Supabase updates (use a clean state machine — 
+   only allow forward transitions, or back to script_review for edits).
+5. Add label tags on each column showing automation level: 
+   "🤖 Auto" or "✋ Manual gate".
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 6: AI INTEGRATION (Scripts via Gemini)
+
+1. Create a Supabase Edge Function OR Next.js API route (/api/generate-script) that:
+   - Takes a trend keyword + niche + target demographics
+   - Calls Gemini API with a prompt engineered for high-retention 45-50 second 
+     vertical short-form scripts (strong 3-second hook, fast pacing, clear CTA 
+     that uses a comment-trigger word).
+   - Returns the script text.
+2. Add a "Generate Script" button on trend cards that creates a new content_object 
+   with the generated script in 'script_review' status.
+3. Add a "Regenerate" button in the content detail modal.
+Use streaming if simple; otherwise standard response is fine.
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 7: TTS + B-ROLL FETCHING
+
+1. API route /api/generate-audio: takes script text, calls ElevenLabs API, 
+   saves the mp3 to Supabase Storage, updates content_object.audio_path.
+2. API route /api/fetch-broll: takes keywords, calls Pexels API for vertical 
+   (portrait) video clips, returns clip URLs. Store as JSON on the content object 
+   (add a broll_urls jsonb column via a new migration if needed).
+3. Wire these into the "Approve" action from Script Review (auto-trigger audio + broll 
+   fetch when a script is approved, moving card to 'rendering').
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 8: LOCAL VIDEO RENDERER (Separate Node Script)
+
+Create a standalone Node.js script in /renderer/render.js (NOT in the Next app) that:
+1. Polls Supabase for content_objects with status 'rendering'.
+2. For each: downloads the audio + broll clips, uses FFmpeg (via fluent-ffmpeg) to:
+   - Concatenate broll clips (each clip max 2.5 seconds for retention)
+   - Overlay the audio track
+   - Add auto-generated captions (use the script text, simple subtitle overlay)
+   - Output 1080x1920 mp4
+3. Uploads the result to Supabase Storage, updates render_path + status to 'ready_approve'.
+4. Include clear README instructions for installing FFmpeg locally and running this script.
+Make it robust with try/catch and set status to 'failed' on error.
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 9: OFFERS + AUDIENCE VAULT PAGES
+
+1. Offers page: table of offers with payout, type, vertical, clicks, conversions, EPC 
+   (computed from conversions). "+ Add Offer" dialog. Status toggle.
+2. Audience Vault page: total leads stat, breakdown by contact_channel, 
+   segment cards grouped by intent_tags, each with a "Broadcast" button (UI only / 
+   stub the actual sending for now).
+
+CONFIRM, THEN CONTINUE.
+
+---
+
+## PHASE 10: SETTINGS + POLISH
+
+1. Settings page: integration status cards (show which API keys are configured), 
+   usage indicators (mock if no real usage API).
+2. Add loading skeletons, empty states, and toast notifications (sonner) for all actions.
+3. Add basic Supabase email auth (login/signup) protecting the dashboard routes.
+4. Ensure full responsive design and consistent dark theme throughout.
+
+---
+
+## GENERAL RULES FOR THE ENTIRE BUILD:
+- Write clean, typed, well-commented code.
+- Use Server Components where possible, Client Components only when needed (interactivity).
+- Handle loading and error states everywhere.
+- Never hardcode secrets — always use env vars.
+- Keep components small and reusable (build a /components/ui and /components/features structure).
+- After each phase, give me a short summary of what was built and what env vars / 
+  manual steps I need to do (e.g., "create Supabase project", "get Pexels key").

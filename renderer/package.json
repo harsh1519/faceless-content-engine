@@ -1,0 +1,16 @@
+{
+  "name": "faceless-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local FFmpeg renderer for Faceless Content Engine",
+  "main": "render.js",
+  "scripts": {
+    "start": "node render.js",
+    "once": "node render.js --once"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.10",
+    "dotenv": "^16.4.7",
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}
