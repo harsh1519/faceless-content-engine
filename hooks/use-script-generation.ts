@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 import { createClient } from "@/lib/supabase/client";
 import {
   createScriptedContent,
@@ -92,7 +92,41 @@ export function useGenerateAndCreateContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pipeline"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["trend-queue"] });
       toastSuccess("Script generated — added to Script Review");
+    },
+    onError: toastError,
+  });
+}
+
+export function useDiscoverTrends() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (channel_id: string) => {
+      const res = await fetch("/api/trends/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id }),
+      });
+      const data = (await res.json()) as {
+        inserted?: number;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Trend discover failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["trend-queue"] });
+      const n = data.inserted ?? 0;
+      if (n > 0) {
+        toastSuccess(`Added ${n} live trend${n === 1 ? "" : "s"} to the queue`);
+      } else if (data.message) {
+        toastInfo(data.message);
+      } else {
+        toastInfo("No new trends returned. Try again in a minute.");
+      }
     },
     onError: toastError,
   });

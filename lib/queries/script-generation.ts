@@ -5,14 +5,57 @@ import type { Channel, ContentObject, Trend } from "@/lib/supabase/types";
 export async function fetchTrendQueue(
   supabase: SupabaseClient
 ): Promise<Trend[]> {
-  const { data, error } = await supabase
+  const { data: channelRows, error: chErr } = await supabase
+    .from("channels")
+    .select("channel_id")
+    .eq("status", "active");
+
+  if (chErr) throw chErr;
+
+  const activeIds = (channelRows ?? [])
+    .map((r) => r.channel_id as string)
+    .filter(Boolean);
+
+  if (activeIds.length === 0) {
+    const { data, error } = await supabase
+      .from("trends")
+      .select("*")
+      .in("status", ["new", "approved"])
+      .is("channel_id", null)
+      .order("velocity_score", { ascending: false });
+
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  const { data: globalTrends, error: gErr } = await supabase
     .from("trends")
     .select("*")
     .in("status", ["new", "approved"])
+    .is("channel_id", null)
     .order("velocity_score", { ascending: false });
 
-  if (error) throw error;
-  return data ?? [];
+  if (gErr) throw gErr;
+
+  const { data: scopedTrends, error: sErr } = await supabase
+    .from("trends")
+    .select("*")
+    .in("status", ["new", "approved"])
+    .in("channel_id", activeIds)
+    .order("velocity_score", { ascending: false });
+
+  if (sErr) throw sErr;
+
+  const merged = [...(globalTrends ?? []), ...(scopedTrends ?? [])];
+  merged.sort(
+    (a, b) => Number(b.velocity_score) - Number(a.velocity_score)
+  );
+
+  const byId = new Map<string, Trend>();
+  for (const t of merged) {
+    byId.set(t.trend_id, t as Trend);
+  }
+  return Array.from(byId.values());
 }
 
 export async function fetchChannelsList(

@@ -1,16 +1,25 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 import { ContentDetailModal } from "@/components/features/pipeline/content-detail-modal";
 import { KanbanBoard } from "@/components/features/pipeline/kanban-board";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRegisterPageAction } from "@/components/providers/page-actions-provider";
 import { useApproveScript } from "@/hooks/use-approve-script";
 import { useOffers, usePipelineContent, useUpdateContent } from "@/hooks/use-pipeline";
 import {
   useActiveChannels,
+  useDiscoverTrends,
   useGenerateAndCreateContent,
   useTrendQueue,
 } from "@/hooks/use-script-generation";
@@ -31,7 +40,15 @@ export function PipelineView() {
   const updateContent = useUpdateContent();
   const approveScript = useApproveScript();
   const generateAndCreate = useGenerateAndCreateContent();
+  const discoverTrends = useDiscoverTrends();
   const [selected, setSelected] = useState<PipelineContent | null>(null);
+  const [discoverChannelId, setDiscoverChannelId] = useState("");
+
+  useEffect(() => {
+    if (channels[0]?.channel_id && !discoverChannelId) {
+      setDiscoverChannelId(channels[0].channel_id);
+    }
+  }, [channels, discoverChannelId]);
 
   const handleTopBarNew = useCallback(() => {
     const draft = content?.find((c) => c.status === "script_review");
@@ -153,6 +170,55 @@ export function PipelineView() {
 
   return (
     <>
+      <div className="mb-4 flex flex-col gap-3 rounded-lg border border-border/60 bg-zinc-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-medium">Live trend import</p>
+          <p className="text-xs text-muted-foreground">
+            Fetches signals for the selected channel&apos;s niche from{" "}
+            <span className="text-foreground">Reddit</span>,{" "}
+            <span className="text-foreground">Google Trends</span>, and{" "}
+            <span className="text-foreground">r/TikTok</span> (free public data; not an official
+            TikTok API). Apply{" "}
+            <code className="rounded bg-zinc-900 px-1 text-[10px]">004_trends_channel_id.sql</code>{" "}
+            in Supabase if imports fail.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={discoverChannelId}
+            onValueChange={setDiscoverChannelId}
+            disabled={!channels.length}
+          >
+            <SelectTrigger className="h-9 w-[min(100%,220px)] text-xs">
+              <SelectValue placeholder="Channel for niche" />
+            </SelectTrigger>
+            <SelectContent>
+              {channels.map((ch) => (
+                <SelectItem key={ch.channel_id} value={ch.channel_id}>
+                  {ch.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!discoverChannelId || discoverTrends.isPending}
+            onClick={() => discoverTrends.mutate(discoverChannelId)}
+          >
+            {discoverTrends.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                Fetching…
+              </>
+            ) : (
+              "Pull live trends"
+            )}
+          </Button>
+        </div>
+      </div>
+
       <KanbanBoard
         content={content ?? []}
         trends={trends}

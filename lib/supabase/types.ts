@@ -38,6 +38,8 @@ export interface Trend {
   predicted_epc: number;
   status: TrendStatus;
   created_at: string;
+  /** When set, trend was imported for this channel (e.g. live discover). NULL = global/seed. */
+  channel_id?: string | null;
 }
 
 export interface Offer {
