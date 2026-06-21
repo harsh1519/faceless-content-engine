@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { toastError, toastSuccess } from "@/lib/toast";
+import { createClient } from "@/lib/supabase/client";
 import type { OfferStatus } from "@/lib/supabase/types";
 import {
   createOffer,

@@ -27,7 +27,7 @@ export async function GET() {
     {
       id: "gemini",
       name: "Google Gemini",
-      description: "AI script generation",
+      description: "AI script generation + Gemini TTS fallback",
       configured: !!process.env.GEMINI_API_KEY,
       usage: { used: 18, limit: 50, unit: "requests/day" },
     },
@@ -52,7 +52,13 @@ export async function GET() {
       configured: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       usage: { used: 5, limit: 100, unit: "renders" },
     },
-  ];
+    {
+      id: "local_media",
+      name: "Local media root",
+      description: "Store audio/renders on disk (set LOCAL_MEDIA_ROOT)",
+      configured: !!process.env.LOCAL_MEDIA_ROOT,
+      usage: { used: 0, limit: 1, unit: "path configured" },
+    },
 
   return NextResponse.json({ integrations });
 }

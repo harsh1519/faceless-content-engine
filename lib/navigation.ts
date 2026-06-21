@@ -1,4 +1,5 @@
 import {
+  Film,
   LayoutDashboard,
   Radio,
   GitBranch,
@@ -33,6 +34,12 @@ export const navItems: NavItem[] = [
     href: "/pipeline",
     icon: GitBranch,
     newLabel: "New Content",
+  },
+  {
+    title: "Long-form",
+    href: "/long-form",
+    icon: Film,
+    newLabel: "New Long Project",
   },
   {
     title: "Offers",

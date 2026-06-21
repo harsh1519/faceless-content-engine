@@ -31,6 +31,11 @@ const OUTPUT_WIDTH = 1080;
 const OUTPUT_HEIGHT = 1920;
 const MAX_CLIP_SECONDS = 2.5;
 const BUCKET = "media";
+const LOCAL_MEDIA_PREFIX = "local/";
+const LOCAL_MEDIA_ROOT = process.env.LOCAL_MEDIA_ROOT
+  ? path.resolve(process.env.LOCAL_MEDIA_ROOT)
+  : null;
+const MAX_BROLL_SEGMENTS = Number(process.env.MAX_BROLL_SEGMENTS || 3000);
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error(
@@ -96,6 +101,33 @@ async function downloadStorageFile(storagePath, destPath) {
 
   const buffer = Buffer.from(await data.arrayBuffer());
   await fsp.writeFile(destPath, buffer);
+}
+
+function resolveLocalMediaFile(dbPath) {
+  if (!dbPath.startsWith(LOCAL_MEDIA_PREFIX)) {
+    return null;
+  }
+  if (!LOCAL_MEDIA_ROOT) {
+    throw new Error("LOCAL_MEDIA_ROOT is required for paths starting with local/");
+  }
+  const rel = dbPath.slice(LOCAL_MEDIA_PREFIX.length);
+  const full = path.resolve(path.join(LOCAL_MEDIA_ROOT, rel));
+  const rootWithSep = LOCAL_MEDIA_ROOT.endsWith(path.sep)
+    ? LOCAL_MEDIA_ROOT
+    : LOCAL_MEDIA_ROOT + path.sep;
+  if (full !== LOCAL_MEDIA_ROOT && !full.startsWith(rootWithSep)) {
+    throw new Error("Invalid local media path");
+  }
+  return full;
+}
+
+async function copyAudioToWorkdir(audioPath, destPath) {
+  const localSrc = resolveLocalMediaFile(audioPath);
+  if (localSrc) {
+    await fsp.copyFile(localSrc, destPath);
+    return;
+  }
+  await downloadStorageFile(audioPath, destPath);
 }
 
 async function downloadUrl(url, destPath) {
@@ -176,7 +208,10 @@ function planSegments(clips, audioDuration) {
     segments.push({ url: clip.url, duration: clipDur, index: index % clips.length });
     total += clipDur;
     index++;
-    if (index > 500) throw new Error("Too many segments — check broll/audio duration");
+    if (index > MAX_BROLL_SEGMENTS)
+      throw new Error(
+        `Too many segments (${MAX_BROLL_SEGMENTS} max) — increase MAX_BROLL_SEGMENTS or shorten audio`
+      );
   }
 
   return segments;
@@ -240,16 +275,23 @@ async function muxFinalVideo(videoPath, audioPath, srtPath, outputPath) {
 }
 
 async function uploadRender(localPath, videoId) {
-  const storagePath = `renders/${videoId}.mp4`;
   const fileBuffer = await fsp.readFile(localPath);
+  const rel = `renders/${videoId}.mp4`;
 
-  const { error } = await supabase.storage.from(BUCKET).upload(storagePath, fileBuffer, {
+  if (LOCAL_MEDIA_ROOT) {
+    const dest = path.resolve(path.join(LOCAL_MEDIA_ROOT, rel));
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.writeFile(dest, fileBuffer);
+    return `${LOCAL_MEDIA_PREFIX}${rel.replace(/\\/g, "/")}`;
+  }
+
+  const { error } = await supabase.storage.from(BUCKET).upload(rel, fileBuffer, {
     contentType: "video/mp4",
     upsert: true,
   });
 
   if (error) throw new Error(`Upload failed: ${error.message}`);
-  return storagePath;
+  return rel;
 }
 
 async function processJob(job) {
@@ -262,8 +304,9 @@ async function processJob(job) {
   log(`Processing ${videoId} in ${workDir}`);
 
   try {
-    const localAudio = path.join(workDir, "audio.mp3");
-    await downloadStorageFile(audioPath, localAudio);
+    const ext = path.extname(audioPath) || ".mp3";
+    const localAudio = path.join(workDir, `input-audio${ext}`);
+    await copyAudioToWorkdir(audioPath, localAudio);
     const audioDuration = await ffprobeDuration(localAudio);
     log(`Audio duration: ${audioDuration.toFixed(1)}s`);
 

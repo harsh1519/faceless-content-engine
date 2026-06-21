@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { synthesizeSpeech } from "@/lib/media/elevenlabs";
+import { synthesizeTtsToBuffer } from "@/lib/media/synthesize-tts";
+import { getLocalMediaRoot, saveLocalMedia } from "@/lib/media/local-storage";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
@@ -20,19 +21,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const audioBuffer = await synthesizeSpeech(script);
+    const { buffer, extension, contentType } = await synthesizeTtsToBuffer(script);
+    const relativeFile = `audio/${videoId}.${extension}`;
     const supabase = createAdminClient();
-    const storagePath = `audio/${videoId}.mp3`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("media")
-      .upload(storagePath, audioBuffer, {
-        contentType: "audio/mpeg",
-        upsert: true,
-      });
+    let storagePath: string;
 
-    if (uploadError) {
-      throw new Error(`Storage upload failed: ${uploadError.message}`);
+    if (getLocalMediaRoot()) {
+      storagePath = await saveLocalMedia(relativeFile, buffer);
+    } else {
+      storagePath = relativeFile;
+      const { error: uploadError } = await supabase.storage
+        .from("media")
+        .upload(storagePath, buffer, {
+          contentType,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw new Error(`Storage upload failed: ${uploadError.message}`);
+      }
     }
 
     const { error: updateError } = await supabase

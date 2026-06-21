@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getMediaPublicUrl } from "@/lib/media/resolve-media-url";
 import type { ContentObject, ContentStatus, Offer } from "@/lib/supabase/types";
 import { canTransition } from "@/lib/pipeline/state-machine";
 
@@ -93,13 +94,7 @@ export async function updateContent(
   return data;
 }
 
-/** Build a public Supabase Storage URL from a relative path. */
+/** Public URL for Supabase Storage paths or `local/…` on-disk media. */
 export function getStoragePublicUrl(path: string | null): string | null {
-  if (!path) return null;
-  if (path.startsWith("http")) return path;
-
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return null;
-
-  return `${base}/storage/v1/object/public/media/${path}`;
+  return getMediaPublicUrl(path);
 }

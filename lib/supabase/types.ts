@@ -52,6 +52,8 @@ export interface Offer {
   created_at: string;
 }
 
+export type ProductionType = "short" | "long";
+
 export interface ContentObject {
   video_id: string;
   channel_id: string;
@@ -62,9 +64,52 @@ export interface ContentObject {
   render_path: string | null;
   broll_urls: BrollClip[];
   status: ContentStatus;
+  production_type?: ProductionType;
   thumbnail_url: string | null;
   published_at: string | null;
   created_at: string;
+}
+
+export type LongFormProjectStatus =
+  | "draft"
+  | "researched"
+  | "outlined"
+  | "scripted"
+  | "tts_ready"
+  | "merged"
+  | "review"
+  | "queued_render"
+  | "published"
+  | "failed";
+
+export type LongFormSectionStatus = "pending" | "written" | "tts_done" | "failed";
+
+export interface LongFormProjectRow {
+  project_id: string;
+  channel_id: string | null;
+  title: string;
+  topic: string;
+  status: LongFormProjectStatus;
+  research_notes: string;
+  outline: { id: string; title: string }[];
+  merged_audio_path: string | null;
+  final_video_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LongFormSectionRow {
+  section_id: string;
+  project_id: string;
+  sort_order: number;
+  title: string;
+  script_text: string;
+  status: LongFormSectionStatus;
+  audio_path: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BrollClip {
