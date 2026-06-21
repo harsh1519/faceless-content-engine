@@ -59,6 +59,7 @@ export async function GET() {
       configured: !!process.env.LOCAL_MEDIA_ROOT,
       usage: { used: 0, limit: 1, unit: "path configured" },
     },
+  ];
 
   return NextResponse.json({ integrations });
 }

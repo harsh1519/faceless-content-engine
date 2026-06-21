@@ -1,12 +1,22 @@
 "use client";
 
+import { useCallback } from "react";
+
 import { IntegrationCards } from "@/components/features/settings/integration-cards";
+import { useRegisterPageAction } from "@/components/providers/page-actions-provider";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIntegrations } from "@/hooks/use-settings";
 
 export function SettingsView() {
   const { data, isLoading, isError, error, refetch } = useIntegrations();
+
+  const scrollToIntegrations = useCallback(() => {
+    document
+      .getElementById("settings-integrations")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  useRegisterPageAction("onNew", scrollToIntegrations);
 
   if (isError) {
     return (
@@ -24,7 +34,7 @@ export function SettingsView() {
 
   return (
     <div className="space-y-8">
-      <section className="space-y-4">
+      <section id="settings-integrations" className="scroll-mt-6 space-y-4">
         <div>
           <h2 className="text-sm font-medium">Integrations</h2>
           <p className="text-xs text-muted-foreground">

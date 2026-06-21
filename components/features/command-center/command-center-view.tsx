@@ -1,13 +1,28 @@
 "use client";
 
+import { useCallback, useState } from "react";
+
 import { AlertsPanel } from "@/components/features/command-center/alerts-panel";
 import { KpiCards } from "@/components/features/command-center/kpi-cards";
 import { RevenueChart } from "@/components/features/command-center/revenue-chart";
+import { useRegisterPageAction } from "@/components/providers/page-actions-provider";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDashboard } from "@/hooks/use-dashboard";
 
 export function CommandCenterView() {
   const { data, isLoading, isError, error, refetch } = useDashboard();
+  const [alertRuleOpen, setAlertRuleOpen] = useState(false);
+
+  const openAlertRuleDialog = useCallback(() => setAlertRuleOpen(true), []);
+  useRegisterPageAction("onNew", openAlertRuleDialog);
 
   if (isError) {
     return (
@@ -27,6 +42,24 @@ export function CommandCenterView() {
 
   return (
     <div className="space-y-6">
+      <Dialog open={alertRuleOpen} onOpenChange={setAlertRuleOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New alert rule</DialogTitle>
+            <DialogDescription>
+              Custom alert rules (e.g. notify when a channel drops below a health
+              score) are planned for a future release. For now, use the alerts list
+              on this page to monitor your workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" onClick={() => setAlertRuleOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <KpiCards kpis={data?.kpis} isLoading={isLoading} />
 
       <div className="grid gap-6 xl:grid-cols-5">

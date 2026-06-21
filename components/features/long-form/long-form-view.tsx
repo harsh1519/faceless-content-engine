@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Film, Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useRegisterPageAction } from "@/components/providers/page-actions-provider";
 import {
   useChannelsForPicker,
   useCreateLongFormProject,
@@ -51,6 +52,9 @@ export function LongFormView() {
   const [openNew, setOpenNew] = useState(false);
   const [topic, setTopic] = useState("");
   const [title, setTitle] = useState("");
+
+  const openNewProject = useCallback(() => setOpenNew(true), []);
+  useRegisterPageAction("onNew", openNewProject);
 
   const createProject = useCreateLongFormProject();
 

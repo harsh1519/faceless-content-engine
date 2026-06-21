@@ -1,10 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { LeadStats } from "@/components/features/audience/lead-stats";
 import { SegmentCards } from "@/components/features/audience/segment-cards";
+import { useRegisterPageAction } from "@/components/providers/page-actions-provider";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAudience } from "@/hooks/use-audience";
 import { toastSuccess } from "@/lib/toast";
@@ -12,6 +21,11 @@ import { toastSuccess } from "@/lib/toast";
 export function AudienceView() {
   const { data, isLoading, isError, error, refetch } = useAudience();
   const [broadcastMsg, setBroadcastMsg] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const openImportDialog = useCallback(() => setImportOpen(true), []);
+  useRegisterPageAction("onNew", openImportDialog);
 
   function handleBroadcast(tag: string, count: number) {
     const msg = `Broadcast queued for "${tag}" (${count} lead${count === 1 ? "" : "s"})`;
@@ -51,8 +65,51 @@ export function AudienceView() {
     );
   }
 
+  function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    toastSuccess(
+      `${file.name} selected — CSV import is not persisted in V1; use Supabase or a future API to load leads.`
+    );
+  }
+
   return (
     <div className="space-y-8">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        aria-hidden
+        onChange={handleImportFileChange}
+      />
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import leads</DialogTitle>
+            <DialogDescription>
+              Bulk CSV import into the Audience Vault is not persisted in this
+              version. You can still pick a file to validate the workflow, or add
+              leads directly in Supabase for development.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Choose CSV
+            </Button>
+            <Button type="button" onClick={() => setImportOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {broadcastMsg && (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
           {broadcastMsg}

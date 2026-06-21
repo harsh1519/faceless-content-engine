@@ -14,7 +14,7 @@ import {
   useGenerateAndCreateContent,
   useTrendQueue,
 } from "@/hooks/use-script-generation";
-import { toastError } from "@/lib/toast";
+import { toastError, toastInfo } from "@/lib/toast";
 import type { Channel, ContentStatus, Trend } from "@/lib/supabase/types";
 
 export function PipelineView() {
@@ -33,12 +33,24 @@ export function PipelineView() {
   const generateAndCreate = useGenerateAndCreateContent();
   const [selected, setSelected] = useState<PipelineContent | null>(null);
 
-  const openFirstDraft = useCallback(() => {
+  const handleTopBarNew = useCallback(() => {
     const draft = content?.find((c) => c.status === "script_review");
-    if (draft) setSelected(draft);
+    if (draft) {
+      setSelected(draft);
+      return;
+    }
+    if (content?.length) {
+      toastInfo(
+        "No items in Script Review. Open a card on the board or move one into review first."
+      );
+    } else {
+      toastInfo(
+        "Use a trend in Trends Queue: pick a channel, then generate a script to add pipeline content."
+      );
+    }
   }, [content]);
 
-  useRegisterPageAction("onNew", content?.length ? openFirstDraft : undefined);
+  useRegisterPageAction("onNew", handleTopBarNew);
 
   async function handleGenerateFromTrend({
     trend,

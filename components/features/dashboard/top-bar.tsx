@@ -6,10 +6,17 @@ import { Bell, LogOut, Menu, Plus } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
 import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { usePageActions } from "@/components/providers/page-actions-provider";
 import { createClient } from "@/lib/supabase/client";
 import { getNavItemForPath } from "@/lib/navigation";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 
 interface TopBarProps {
   onMenuClick?: () => void;
@@ -21,6 +28,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   const current = getNavItemForPath(pathname);
   const { actions } = usePageActions();
   const [user, setUser] = useState<User | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -67,7 +75,13 @@ export function TopBar({ onMenuClick }: TopBarProps) {
         <Button
           size="sm"
           className="gap-1.5"
-          onClick={() => actions.onNew?.()}
+          onClick={() => {
+            if (actions.onNew) {
+              actions.onNew();
+            } else {
+              toastInfo("Use the controls on this page — the header “New” action is not wired here yet.");
+            }
+          }}
         >
           <Plus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">{current.newLabel}</span>
@@ -77,12 +91,36 @@ export function TopBar({ onMenuClick }: TopBarProps) {
         <Button
           variant="outline"
           size="icon"
-          className="relative hidden border-border/60 bg-zinc-900/50 sm:flex"
+          type="button"
+          className="relative flex border-border/60 bg-zinc-900/50"
           aria-label="Notifications"
+          onClick={() => setNotificationsOpen(true)}
         >
           <Bell className="h-4 w-4" />
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-zinc-950" />
         </Button>
+
+        <Sheet open={notificationsOpen} onOpenChange={setNotificationsOpen}>
+          <SheetContent side="right" className="border-border/60">
+            <SheetHeader>
+              <SheetTitle>Notifications</SheetTitle>
+              <SheetDescription>
+                In-app alerts for this workspace. Deeper health checks live on the
+                Command Center.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 space-y-3 text-sm text-muted-foreground">
+              <p>
+                You have no new notifications. When the app adds delivery webhooks
+                or email digests, they will show here.
+              </p>
+              <p className="text-xs">
+                Tip: open <span className="text-foreground">Command Center</span>{" "}
+                for channel alerts and failed renders from your data.
+              </p>
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {user?.email && (
           <span className="hidden max-w-[120px] truncate text-xs text-muted-foreground lg:inline xl:max-w-[180px]">
