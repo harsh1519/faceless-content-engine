@@ -1,4 +1,7 @@
-import { isLocalMediaPath, stripLocalPrefix } from "@/lib/media/local-storage";
+import {
+  isLocalMediaPath,
+  stripLocalPrefix,
+} from "@/lib/media/local-media-path";
 
 /**
  * Browser-playable URL for audio/video stored in Supabase public bucket or local disk.

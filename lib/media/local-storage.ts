@@ -1,7 +1,13 @@
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 
-export const LOCAL_MEDIA_PREFIX = "local/" as const;
+import {
+  LOCAL_MEDIA_PREFIX,
+  isLocalMediaPath,
+  stripLocalPrefix,
+} from "@/lib/media/local-media-path";
+
+export { LOCAL_MEDIA_PREFIX, isLocalMediaPath, stripLocalPrefix };
 
 /** Absolute root for on-disk media when using local storage (no Supabase Storage for blobs). */
 export function getLocalMediaRoot(): string | null {
@@ -18,7 +24,9 @@ export function resolveLocalMediaFile(relativePath: string): string {
     throw new Error("LOCAL_MEDIA_ROOT is not configured");
   }
 
-  const normalized = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const normalized = path
+    .normalize(relativePath)
+    .replace(/^(\.\.(\/|\\|$))+/, "");
   const full = path.resolve(path.join(root, normalized));
   const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
 
@@ -29,14 +37,6 @@ export function resolveLocalMediaFile(relativePath: string): string {
   return full;
 }
 
-/** Strip leading `local/` from DB paths to get the path under LOCAL_MEDIA_ROOT. */
-export function stripLocalPrefix(dbPath: string): string {
-  if (!dbPath.startsWith(LOCAL_MEDIA_PREFIX)) {
-    throw new Error("Expected path to start with local/");
-  }
-  return dbPath.slice(LOCAL_MEDIA_PREFIX.length);
-}
-
 export async function saveLocalMedia(
   relativeUnderRoot: string,
   data: Buffer
@@ -45,8 +45,4 @@ export async function saveLocalMedia(
   await mkdir(path.dirname(dest), { recursive: true });
   await writeFile(dest, data);
   return `${LOCAL_MEDIA_PREFIX}${relativeUnderRoot.replace(/\\/g, "/")}`;
-}
-
-export function isLocalMediaPath(dbPath: string | null | undefined): boolean {
-  return !!dbPath?.startsWith(LOCAL_MEDIA_PREFIX);
 }
