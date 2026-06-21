@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
 import { buildScriptPrompt } from "@/lib/ai/script-prompt";
+import { getGeminiScriptModel } from "@/lib/ai/gemini-text-model";
 
 export interface GenerateScriptRequest {
   keyword: string;
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: getGeminiScriptModel() });
 
     const prompt = buildScriptPrompt({
       keyword,
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
 
     if (!script) {
       return NextResponse.json(
-        { error: "Gem returned an empty script" },
+        { error: "Gemini returned an empty script" },
         { status: 502 }
       );
     }

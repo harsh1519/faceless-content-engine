@@ -47,6 +47,7 @@ Open **SQL Editor** and run these files in order:
 | Service | URL | Env var |
 |---------|-----|---------|
 | Google Gemini | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `GEMINI_API_KEY` |
+| *(optional)* Gemini text model | Use id from AI Studio if `generateContent` returns 404 | `GEMINI_SCRIPT_MODEL`, `GEMINI_LONG_FORM_MODEL` |
 | ElevenLabs | [elevenlabs.io](https://elevenlabs.io) | `ELEVENLABS_API_KEY` |
 | Pexels | [pexels.com/api](https://www.pexels.com/api/) | `PEXELS_API_KEY` |
 

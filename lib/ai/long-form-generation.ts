@@ -1,12 +1,12 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const MODEL = process.env.GEMINI_LONG_FORM_MODEL?.trim() || "gemini-1.5-flash";
+import { getGeminiLongFormModel } from "@/lib/ai/gemini-text-model";
 
 function getModel() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not configured");
   const gen = new GoogleGenerativeAI(key);
-  return gen.getGenerativeModel({ model: MODEL });
+  return gen.getGenerativeModel({ model: getGeminiLongFormModel() });
 }
 
 export async function generateResearchNotes(topic: string): Promise<string> {
