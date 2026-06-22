@@ -16,6 +16,7 @@ const { execSync } = require("child_process");
 const dotenv = require("dotenv");
 const ffmpeg = require("fluent-ffmpeg");
 const { createClient } = require("@supabase/supabase-js");
+const ws = require("ws");
 
 // Load env from renderer/.env then project root .env.local
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -46,6 +47,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
+  realtime: { transport: ws },
 });
 
 function log(msg, ...args) {
