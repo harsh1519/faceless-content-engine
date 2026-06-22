@@ -11,7 +11,7 @@
 const fsp = require("fs/promises");
 const path = require("path");
 const os = require("os");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 
 const dotenv = require("dotenv");
 const ffmpeg = require("fluent-ffmpeg");
@@ -37,6 +37,15 @@ const LOCAL_MEDIA_ROOT = process.env.LOCAL_MEDIA_ROOT
   ? path.resolve(process.env.LOCAL_MEDIA_ROOT)
   : null;
 const MAX_BROLL_SEGMENTS = Number(process.env.MAX_BROLL_SEGMENTS || 3000);
+const FFMPEG_PATH =
+  process.env.FFMPEG_PATH?.trim() ||
+  (process.platform === "win32" ? "C:\\ffmpeg\\bin\\ffmpeg.exe" : "ffmpeg");
+const FFPROBE_PATH =
+  process.env.FFPROBE_PATH?.trim() ||
+  (process.platform === "win32" ? "C:\\ffmpeg\\bin\\ffprobe.exe" : "ffprobe");
+
+ffmpeg.setFfmpegPath(FFMPEG_PATH);
+ffmpeg.setFfprobePath(FFPROBE_PATH);
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error(
@@ -56,11 +65,11 @@ function log(msg, ...args) {
 
 function checkFfmpeg() {
   try {
-    execSync("ffmpeg -version", { stdio: "ignore" });
-    execSync("ffprobe -version", { stdio: "ignore" });
+    execFileSync(FFMPEG_PATH, ["-version"], { stdio: "ignore" });
+    execFileSync(FFPROBE_PATH, ["-version"], { stdio: "ignore" });
   } catch {
     console.error(
-      "FFmpeg not found. Install FFmpeg and ensure ffmpeg/ffprobe are on your PATH.\nSee renderer/README.md"
+      `FFmpeg not found. Checked:\nffmpeg: ${FFMPEG_PATH}\nffprobe: ${FFPROBE_PATH}\nSet FFMPEG_PATH and FFPROBE_PATH in renderer/.env if needed.`
     );
     process.exit(1);
   }
