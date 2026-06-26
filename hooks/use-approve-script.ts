@@ -8,6 +8,7 @@ import {
   buildBrollKeywords,
   requestFetchBroll,
   requestGenerateAudio,
+  requestGenerateVisualPlan,
 } from "@/lib/queries/media-production";
 import { updateContent } from "@/lib/queries/pipeline";
 import type { PipelineContent } from "@/lib/queries/pipeline";
@@ -36,16 +37,22 @@ export function useApproveScript() {
         script: content.script,
       });
 
-      const [audioResult, brollResult] = await Promise.all([
+      const [audioResult, visualPlanResult] = await Promise.all([
         requestGenerateAudio({
           video_id: content.video_id,
           script: content.script,
         }),
-        requestFetchBroll({
-          video_id: content.video_id,
-          keywords,
+        requestGenerateVisualPlan({
+          script: content.script,
+          niche: content.channels?.niche_type,
+          production_type: content.production_type ?? "short",
         }),
       ]);
+      const brollResult = await requestFetchBroll({
+        video_id: content.video_id,
+        keywords,
+        visual_plan: visualPlanResult.visual_plan,
+      });
 
       const updated = await updateContent(
         supabase,
@@ -57,6 +64,7 @@ export function useApproveScript() {
         ...updated,
         audio_path: audioResult.audio_path,
         broll_urls: brollResult.broll_urls,
+        visual_plan: brollResult.visual_plan,
       };
     },
     onMutate: async ({ content }) => {
@@ -81,7 +89,7 @@ export function useApproveScript() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pipeline"] });
-      toastSuccess("Audio & B-roll generated — moved to Rendering");
+      toastSuccess("Audio, visual plan & B-roll generated — moved to Rendering");
     },
   });
 }

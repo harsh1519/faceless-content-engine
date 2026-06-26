@@ -6,8 +6,9 @@ import {
   requireSessionUser,
   unauthorizedResponse,
 } from "@/lib/api/require-session";
+import { generateVisualPlanWithGemini } from "@/lib/ai/gemini-visual-plan";
+import { fetchContextualBroll } from "@/lib/media/contextual-broll";
 import { buildBrollKeywords } from "@/lib/queries/media-production";
-import { fetchPortraitClips } from "@/lib/media/pexels";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(
@@ -61,7 +62,16 @@ export async function POST(
       niche: project.topic,
       script: fullScript,
     });
-    const clips = await fetchPortraitClips(keywords);
+    const visualPlan = await generateVisualPlanWithGemini({
+      script: fullScript,
+      niche: project.topic,
+      production_type: "long",
+    });
+    const { broll_urls: clips, visual_plan: enrichedPlan } =
+      await fetchContextualBroll({
+        visual_plan: visualPlan,
+        fallback_keywords: keywords,
+      });
     const videoId = randomUUID();
 
     const { error: insErr } = await admin.from("content_objects").insert({
@@ -72,6 +82,7 @@ export async function POST(
       script: fullScript,
       audio_path: project.merged_audio_path,
       broll_urls: clips,
+      visual_plan: enrichedPlan,
       status: "rendering",
       production_type: "long",
     });

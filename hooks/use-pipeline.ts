@@ -64,10 +64,11 @@ export function useUpdateContent() {
 
       return { previous, currentStatus };
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(["pipeline"], context.previous);
       }
+      toastError(err);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["pipeline"] });
@@ -79,6 +80,5 @@ export function useUpdateContent() {
       else if (vars.status) toastSuccess("Status updated");
       else if (vars.script !== undefined) toastSuccess("Changes saved");
     },
-    onError: toastError,
   });
 }

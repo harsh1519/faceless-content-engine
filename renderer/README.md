@@ -26,9 +26,11 @@ brew install ffmpeg
 ### 2. Supabase setup
 
 - Run migration `supabase/migrations/002_broll_urls.sql` (creates the `media` storage bucket)
+- Run migration `supabase/migrations/005_visual_plan.sql` for scene-level visual planning
 - Content must be in **`rendering`** status with:
   - `audio_path` — MP3 uploaded by Phase 7 (`/api/generate-audio`)
   - `broll_urls` — JSON array of Pexels clip URLs from Phase 7
+  - `visual_plan` — optional scene-level beats with selected clips
 
 ### 3. Environment variables
 
@@ -67,13 +69,14 @@ For each `content_objects` row with `status = 'rendering'`:
 
 1. **Downloads** the TTS audio from Supabase Storage (`media` bucket)
 2. **Downloads** B-roll clips from Pexels URLs in `broll_urls`
-3. **Trims** each clip to max **2.5 seconds** (retention pacing)
-4. **Scales/crops** to **1080×1920** (9:16 vertical)
-5. **Concatenates** clips, looping if video is shorter than audio
-6. **Burns captions** from the script text (simple timed SRT overlay)
-7. **Muxes** audio + captioned video → MP4
-8. **Uploads** to `media/renders/{video_id}.mp4`
-9. **Updates** `render_path` and sets `status` → **`ready_approve`**
+3. **Uses** `visual_plan` order when available, falling back to looping B-roll
+4. **Trims** each clip to max **2.5 seconds** fallback pacing or planned beat duration
+5. **Scales/crops** to **1080×1920** (9:16 vertical)
+6. **Concatenates** clips, looping if video is shorter than audio
+7. **Burns captions** from the visual plan or script text
+8. **Muxes** audio + captioned video → MP4
+9. **Uploads** to `media/renders/{video_id}.mp4`
+10. **Updates** `render_path` and sets `status` → **`ready_approve`**
 
 On any error, status is set to **`failed`** (visible in Command Center alerts).
 

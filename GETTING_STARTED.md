@@ -31,6 +31,7 @@ Open **SQL Editor** and run these files in order:
 1. `supabase/migrations/001_init.sql` — tables + RLS
 2. `supabase/migrations/002_broll_urls.sql` — broll column + storage bucket
 3. `supabase/migrations/003_long_form.sql` — long-form tables (only if you use `/long-form`)
+4. `supabase/migrations/005_visual_plan.sql` — scene-level visual planning for contextual renders
 4. `supabase/migrations/004_trends_channel_id.sql` — `channel_id` on `trends` (live trend import per channel)
 5. `supabase/seed.sql` — sample channels, offers, trends, content (optional but recommended)
 

@@ -102,7 +102,7 @@ export async function requestGeneratedScript(
 
 export interface CreateScriptedContentInput {
   channel_id: string;
-  trend_id: string;
+  trend_id?: string | null;
   script: string;
   offer_id?: string | null;
 }
@@ -115,7 +115,7 @@ export async function createScriptedContent(
     .from("content_objects")
     .insert({
       channel_id: input.channel_id,
-      trend_id: input.trend_id,
+      trend_id: input.trend_id ?? null,
       script: input.script,
       offer_id: input.offer_id ?? null,
       status: "script_review",

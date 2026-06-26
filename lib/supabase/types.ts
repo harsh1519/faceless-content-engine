@@ -65,6 +65,7 @@ export interface ContentObject {
   audio_path: string | null;
   render_path: string | null;
   broll_urls: BrollClip[];
+  visual_plan: VisualPlanItem[];
   status: ContentStatus;
   production_type?: ProductionType;
   thumbnail_url: string | null;
@@ -121,6 +122,14 @@ export interface BrollClip {
   height: number;
   duration: number;
   photographer?: string;
+}
+
+export interface VisualPlanItem {
+  beat_index: number;
+  text: string;
+  visual_query: string;
+  duration_seconds: number;
+  clip?: BrollClip;
 }
 
 export interface Lead {

@@ -250,6 +250,22 @@ export function ContentDetailModal({
               </ul>
             </div>
           )}
+
+          {content.visual_plan?.length > 0 && (
+            <div className="grid gap-2">
+              <Label>Visual plan ({content.visual_plan.length} beats)</Label>
+              <ul className="max-h-40 space-y-2 overflow-y-auto text-xs text-muted-foreground">
+                {content.visual_plan.map((beat) => (
+                  <li key={beat.beat_index} className="rounded-md border border-border/50 p-2">
+                    <p className="line-clamp-2 text-foreground">{beat.text}</p>
+                    <p className="mt-1 truncate">
+                      {beat.duration_seconds}s · {beat.visual_query}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">

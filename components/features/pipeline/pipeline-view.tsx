@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 
 import { ContentDetailModal } from "@/components/features/pipeline/content-detail-modal";
 import { KanbanBoard } from "@/components/features/pipeline/kanban-board";
+import { ManualScriptDialog } from "@/components/features/pipeline/manual-script-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -19,11 +20,13 @@ import { useApproveScript } from "@/hooks/use-approve-script";
 import { useOffers, usePipelineContent, useUpdateContent } from "@/hooks/use-pipeline";
 import {
   useActiveChannels,
+  useCreateScriptedContent,
   useDiscoverTrends,
   useGenerateAndCreateContent,
   useTrendQueue,
 } from "@/hooks/use-script-generation";
-import { toastError, toastInfo } from "@/lib/toast";
+import type { PipelineContent } from "@/lib/queries/pipeline";
+import { toastError, toastInfo, toastSuccess } from "@/lib/toast";
 import type { Channel, ContentStatus, Trend } from "@/lib/supabase/types";
 
 export function PipelineView() {
@@ -40,9 +43,11 @@ export function PipelineView() {
   const updateContent = useUpdateContent();
   const approveScript = useApproveScript();
   const generateAndCreate = useGenerateAndCreateContent();
+  const createScriptedContent = useCreateScriptedContent();
   const discoverTrends = useDiscoverTrends();
   const [selected, setSelected] = useState<PipelineContent | null>(null);
   const [discoverChannelId, setDiscoverChannelId] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
 
   useEffect(() => {
     if (channels[0]?.channel_id && !discoverChannelId) {
@@ -76,14 +81,33 @@ export function PipelineView() {
     trend: Trend;
     channel: Channel;
   }) {
-    await generateAndCreate.mutateAsync({
-      channel_id: channel.channel_id,
-      trend_id: trend.trend_id,
-      keyword: trend.keyword,
-      niche: channel.niche_type,
-      target_demographics: channel.target_demographics,
-      hook_text: trend.hook_text,
-    });
+    try {
+      await generateAndCreate.mutateAsync({
+        channel_id: channel.channel_id,
+        trend_id: trend.trend_id,
+        keyword: trend.keyword,
+        niche: channel.niche_type,
+        target_demographics: channel.target_demographics,
+        hook_text: trend.hook_text,
+      });
+    } catch (err) {
+      console.error("[pipeline] Generate from trend failed", err);
+    }
+  }
+
+  async function handleCreateManualScript(input: {
+    channel_id: string;
+    trend_id?: string | null;
+    script: string;
+    offer_id?: string | null;
+  }) {
+    try {
+      await createScriptedContent.mutateAsync(input);
+      toastSuccess("Manual script added to Script Review");
+    } catch (err) {
+      toastError(err, "Could not create manual script");
+      throw err;
+    }
   }
 
   async function handleApproveScript(item: PipelineContent) {
@@ -103,11 +127,15 @@ export function PipelineView() {
     const item = content?.find((c) => c.video_id === videoId);
     if (!item) return;
 
-    await updateContent.mutateAsync({
-      videoId,
-      status,
-      currentStatus: item.status,
-    });
+    try {
+      await updateContent.mutateAsync({
+        videoId,
+        status,
+        currentStatus: item.status,
+      });
+    } catch (err) {
+      console.error("[pipeline] Status update failed", err);
+    }
   }
 
   async function handleSave(input: {
@@ -130,17 +158,21 @@ export function PipelineView() {
       }
     }
 
-    await updateContent.mutateAsync(input);
-    if (!input.status) {
-      setSelected((prev) =>
-        prev?.video_id === input.videoId
-          ? {
-              ...prev,
-              script: input.script ?? prev.script,
-              offer_id: input.offerId !== undefined ? input.offerId : prev.offer_id,
-            }
-          : prev
-      );
+    try {
+      await updateContent.mutateAsync(input);
+      if (!input.status) {
+        setSelected((prev) =>
+          prev?.video_id === input.videoId
+            ? {
+                ...prev,
+                script: input.script ?? prev.script,
+                offer_id: input.offerId !== undefined ? input.offerId : prev.offer_id,
+              }
+            : prev
+        );
+      }
+    } catch (err) {
+      console.error("[pipeline] Save failed", err);
     }
   }
 
@@ -184,6 +216,17 @@ export function PipelineView() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9"
+            disabled={!channels.length || createScriptedContent.isPending}
+            onClick={() => setManualOpen(true)}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Manual script
+          </Button>
           <Select
             value={discoverChannelId}
             onValueChange={setDiscoverChannelId}
@@ -241,6 +284,14 @@ export function PipelineView() {
         onScriptRegenerated={(script) => {
           setSelected((prev) => (prev ? { ...prev, script } : prev));
         }}
+      />
+      <ManualScriptDialog
+        open={manualOpen}
+        channels={channels}
+        offers={offers}
+        isPending={createScriptedContent.isPending}
+        onOpenChange={setManualOpen}
+        onCreate={handleCreateManualScript}
       />
     </>
   );
