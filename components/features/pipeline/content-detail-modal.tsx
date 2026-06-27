@@ -259,7 +259,8 @@ export function ContentDetailModal({
                   <li key={beat.beat_index} className="rounded-md border border-border/50 p-2">
                     <p className="line-clamp-2 text-foreground">{beat.text}</p>
                     <p className="mt-1 truncate">
-                      {beat.duration_seconds}s · {beat.visual_query}
+                      {beat.duration_seconds}s · {beat.visual_treatment ?? "motion"} ·{" "}
+                      {beat.overlay_text || beat.visual_query}
                     </p>
                   </li>
                 ))}

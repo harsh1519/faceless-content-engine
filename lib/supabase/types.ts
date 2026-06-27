@@ -122,6 +122,7 @@ export interface BrollClip {
   height: number;
   duration: number;
   photographer?: string;
+  quality_score?: number;
 }
 
 export interface VisualPlanItem {
@@ -129,6 +130,10 @@ export interface VisualPlanItem {
   text: string;
   visual_query: string;
   duration_seconds: number;
+  overlay_text?: string;
+  emphasis_terms?: string[];
+  visual_treatment?: "push_in" | "pull_out" | "side_pan" | "snap_zoom";
+  pattern_interrupt?: boolean;
   clip?: BrollClip;
 }
 

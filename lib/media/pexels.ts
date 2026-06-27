@@ -5,6 +5,7 @@ export interface BrollClip {
   height: number;
   duration: number;
   photographer?: string;
+  quality_score?: number;
 }
 
 const PEXELS_API = "https://api.pexels.com/videos/search";
@@ -68,10 +69,11 @@ export async function fetchPortraitClips(
       height: file.height,
       duration: video.duration,
       photographer: video.user?.name,
+      quality_score: scoreClip(file, video.duration),
     });
   }
 
-  return clips;
+  return clips.sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0));
 }
 
 function pickBestPortraitFile(
@@ -93,4 +95,20 @@ function pickBestPortraitFile(
   }
 
   return mp4Portrait.sort((a, b) => b.height - a.height)[0];
+}
+
+function scoreClip(file: PexelsVideoFile, duration: number): number {
+  const verticalRatio = file.height / Math.max(file.width, 1);
+  const resolutionScore = Math.min(file.height / 1920, 1.4) * 40;
+  const verticalScore = Math.min(verticalRatio / 1.75, 1.2) * 30;
+  const durationScore =
+    duration >= 2 && duration <= 12
+      ? 20
+      : duration > 12 && duration <= 25
+        ? 12
+        : 5;
+  const qualityScore =
+    file.quality === "hd" || file.quality === "uhd" ? 10 : 4;
+
+  return Math.round(resolutionScore + verticalScore + durationScore + qualityScore);
 }

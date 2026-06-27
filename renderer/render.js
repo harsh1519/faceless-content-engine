@@ -12,6 +12,7 @@ const fsp = require("fs/promises");
 const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
+const { pathToFileURL } = require("url");
 
 const dotenv = require("dotenv");
 const ffmpeg = require("fluent-ffmpeg");
@@ -27,11 +28,12 @@ const SUPABASE_URL =
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 30_000);
 const RUN_ONCE = process.argv.includes("--once");
+const RENDER_ENGINE = (process.env.RENDER_ENGINE || "ffmpeg").toLowerCase();
 
 const OUTPUT_WIDTH = 1080;
 const OUTPUT_HEIGHT = 1920;
-const MAX_CLIP_SECONDS = 2.5;
-const MAX_PLANNED_CLIP_SECONDS = Number(process.env.MAX_PLANNED_CLIP_SECONDS || 6);
+const MAX_CLIP_SECONDS = Number(process.env.MAX_CLIP_SECONDS || 2.2);
+const MAX_PLANNED_CLIP_SECONDS = Number(process.env.MAX_PLANNED_CLIP_SECONDS || 4.5);
 const DOWNLOAD_TIMEOUT_MS = Number(process.env.DOWNLOAD_TIMEOUT_MS || 30_000);
 const BUCKET = "media";
 const LOCAL_MEDIA_PREFIX = "local/";
@@ -60,6 +62,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
   realtime: { transport: ws },
 });
+
+let remotionBundlePromise = null;
 
 function log(msg, ...args) {
   console.log(`[renderer ${new Date().toISOString()}] ${msg}`, ...args);
@@ -218,31 +222,155 @@ function formatSrtTime(seconds) {
 }
 
 function buildSrt(script, totalSeconds, visualPlan = []) {
+  const phrases = buildTimedPhrases(script, totalSeconds, visualPlan);
+  let srt = "";
+
+  phrases.forEach((phrase, i) => {
+    srt += `${i + 1}\n`;
+    srt += `${formatSrtTime(phrase.start)} --> ${formatSrtTime(phrase.end)}\n`;
+    srt += `${phrase.text}\n\n`;
+  });
+
+  return srt;
+}
+
+function buildAss(script, totalSeconds, visualPlan = []) {
+  const phrases = buildTimedPhrases(script, totalSeconds, visualPlan);
+  const events = [];
+
+  phrases.forEach((phrase) => {
+    const overlay = phrase.overlay_text || shortOverlayFromText(phrase.text);
+    const overlayStart = phrase.start;
+    const overlayEnd = Math.min(phrase.end, phrase.start + 1.45);
+
+    if (overlay && overlayEnd > overlayStart + 0.2) {
+      events.push(
+        `Dialogue: 1,${formatAssTime(overlayStart)},${formatAssTime(overlayEnd)},Overlay,,0,0,0,,${assText(overlay.toUpperCase(), 24)}`
+      );
+    }
+
+    events.push(
+      `Dialogue: 0,${formatAssTime(phrase.start)},${formatAssTime(phrase.end)},Caption,,0,0,0,,${assText(phrase.text, 34)}`
+    );
+  });
+
+  const firstOverlay = phrases[0]?.overlay_text || shortOverlayFromText(phrases[0]?.text || "");
+  if (firstOverlay) {
+    events.unshift(
+      `Dialogue: 2,${formatAssTime(0)},${formatAssTime(Math.min(1.15, totalSeconds))},Hook,,0,0,0,,${assText(firstOverlay.toUpperCase(), 22)}`
+    );
+  }
+
+  return `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${OUTPUT_WIDTH}
+PlayResY: ${OUTPUT_HEIGHT}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Arial,58,&H00FFFFFF,&H000000FF,&H00101010,&HAA000000,-1,0,0,0,100,100,0,0,3,3,1,2,86,86,178,1
+Style: Overlay,Arial,44,&H00FFFFFF,&H000000FF,&H00241610,&HBB111111,-1,0,0,0,100,100,1,0,3,2,0,8,92,92,122,1
+Style: Hook,Arial,64,&H00FFFFFF,&H000000FF,&H00000000,&HE01C1410,-1,0,0,0,100,100,1,0,3,3,1,5,90,90,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${events.join("\n")}
+`;
+}
+
+function buildTimedPhrases(script, totalSeconds, visualPlan = []) {
   const plannedPhrases = visualPlan
     .filter((beat) => beat?.text && Number(beat.duration_seconds) > 0)
     .map((beat) => ({
-      text: String(beat.text).trim(),
+      text: formatCaptionText(String(beat.text).trim(), beat.emphasis_terms),
+      overlay_text: String(beat.overlay_text || "").trim(),
       duration: Number(beat.duration_seconds),
     }));
   const phrases =
     plannedPhrases.length > 0
       ? plannedPhrases
-      : scriptToPhrases(script).map((text) => ({ text, duration: 1 }));
-  const durationTotal = phrases.reduce((sum, phrase) => sum + phrase.duration, 0) || phrases.length;
-  let srt = "";
+      : scriptToPhrases(script).map((text) => ({
+          text: formatCaptionText(text),
+          overlay_text: shortOverlayFromText(text),
+          duration: 1,
+        }));
+  const durationTotal =
+    phrases.reduce((sum, phrase) => sum + phrase.duration, 0) || phrases.length;
   let cursor = 0;
 
-  phrases.forEach((phrase, i) => {
+  return phrases.map((phrase, i) => {
     const slice = (phrase.duration / durationTotal) * totalSeconds;
     const start = cursor;
     const end = i === phrases.length - 1 ? totalSeconds : cursor + slice;
-    srt += `${i + 1}\n`;
-    srt += `${formatSrtTime(start)} --> ${formatSrtTime(end)}\n`;
-    srt += `${phrase.text}\n\n`;
     cursor = end;
+    return { ...phrase, start, end };
   });
+}
 
-  return srt;
+function formatCaptionText(text, emphasisTerms = []) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  const terms = Array.isArray(emphasisTerms)
+    ? emphasisTerms.map((term) => String(term).trim()).filter(Boolean)
+    : [];
+  const words = compact.split(" ");
+
+  return words
+    .map((word) => {
+      const normalized = word.replace(/[^\w-]/g, "").toLowerCase();
+      const shouldEmphasize = terms.some(
+        (term) => normalized === term.toLowerCase() || normalized.includes(term.toLowerCase())
+      );
+      return shouldEmphasize ? word.toUpperCase() : word;
+    })
+    .join(" ")
+    .slice(0, 180);
+}
+
+function shortOverlayFromText(text) {
+  return String(text || "")
+    .replace(/[^\w\s-]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2)
+    .slice(0, 5)
+    .join(" ")
+    .slice(0, 42);
+}
+
+function formatAssTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+function assText(text, lineLength) {
+  const escaped = String(text || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\{/g, "\\{")
+    .replace(/\}/g, "\\}")
+    .trim();
+  return wrapAssText(escaped, lineLength);
+}
+
+function wrapAssText(text, lineLength) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > lineLength && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+
+  if (line) lines.push(line);
+  return lines.slice(0, 3).join("\\N");
 }
 
 /** Build segment list looping broll until audio duration is covered. */
@@ -309,6 +437,12 @@ function normalizeVisualPlanForRender(visualPlan) {
         duration_seconds: Number.isFinite(Number(beat?.duration_seconds))
           ? Number(beat.duration_seconds)
           : 3,
+        overlay_text: String(beat?.overlay_text ?? "").trim(),
+        emphasis_terms: Array.isArray(beat?.emphasis_terms)
+          ? beat.emphasis_terms.map(String).filter(Boolean)
+          : [],
+        visual_treatment: String(beat?.visual_treatment ?? "").trim(),
+        pattern_interrupt: Boolean(beat?.pattern_interrupt),
         ...(clip && { clip }),
       };
     })
@@ -361,6 +495,8 @@ function planVisualSegments(clips, audioDuration, visualPlan) {
       url: clip.url,
       duration: clipDur,
       index: Number.isFinite(Number(beat.beat_index)) ? Number(beat.beat_index) : i,
+      visual_treatment: beat.pattern_interrupt ? "snap_zoom" : beat.visual_treatment,
+      pattern_interrupt: Boolean(beat.pattern_interrupt),
     });
     total += clipDur;
   }
@@ -382,14 +518,51 @@ function planVisualSegments(clips, audioDuration, visualPlan) {
   return segments;
 }
 
-const SCALE_FILTER = `scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=increase,crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}`;
+const BASE_SCALE_FILTER = `scale=${Math.round(OUTPUT_WIDTH * 1.12)}:${Math.round(OUTPUT_HEIGHT * 1.12)}:force_original_aspect_ratio=increase`;
+const COLOR_GRADE_FILTER = "eq=contrast=1.10:saturation=1.18:brightness=0.015,unsharp=5:5:0.45:3:3:0.20,noise=alls=2:allf=t,vignette=PI/6";
 
-async function trimAndScaleClip(inputPath, outputPath, duration) {
+function buildClipFilters(segment, segmentIndex) {
+  const treatment = segment.visual_treatment || "push_in";
+  const crop = buildMotionCrop(treatment, segmentIndex);
+  const fadeOutStart = Math.max(Number(segment.duration || 1) - 0.12, 0);
+
+  return [
+    BASE_SCALE_FILTER,
+    crop,
+    COLOR_GRADE_FILTER,
+    "fps=30",
+    "setsar=1",
+    "fade=t=in:st=0:d=0.10",
+    `fade=t=out:st=${fadeOutStart.toFixed(2)}:d=0.10`,
+  ].join(",");
+}
+
+function buildMotionCrop(treatment, segmentIndex) {
+  const centerX = "(iw-ow)/2";
+  const centerY = "(ih-oh)/2";
+
+  if (treatment === "side_pan") {
+    const direction = segmentIndex % 2 === 0 ? 1 : -1;
+    return `crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:x='${centerX}+${direction}*sin(n/35)*28':y='${centerY}'`;
+  }
+
+  if (treatment === "pull_out") {
+    return `crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:x='${centerX}':y='${centerY}+cos(n/42)*18'`;
+  }
+
+  if (treatment === "snap_zoom") {
+    return `crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:x='${centerX}+sin(n/12)*16':y='${centerY}+cos(n/12)*16'`;
+  }
+
+  return `crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:x='${centerX}':y='${centerY}-sin(n/45)*20'`;
+}
+
+async function trimAndScaleClip(inputPath, outputPath, segment, segmentIndex) {
   await runFfmpeg(
     ffmpeg(inputPath)
       .setStartTime(0)
-      .duration(duration)
-      .videoFilters(SCALE_FILTER)
+      .duration(segment.duration)
+      .videoFilters(buildClipFilters(segment, segmentIndex))
       .outputOptions(["-an", "-r", "30", "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p"])
       .output(outputPath)
   );
@@ -404,6 +577,8 @@ async function renderSegmentWithFallback(segment, i, workDir, fallbackClips) {
       .map((clip) => ({
         url: clip.url,
         duration: Math.min(segment.duration, clip.duration || segment.duration),
+        visual_treatment: segment.visual_treatment,
+        pattern_interrupt: segment.pattern_interrupt,
       })),
   ];
   let lastError = null;
@@ -415,7 +590,7 @@ async function renderSegmentWithFallback(segment, i, workDir, fallbackClips) {
 
     try {
       await downloadUrl(candidate.url, rawPath);
-      await trimAndScaleClip(rawPath, segPath, candidate.duration);
+      await trimAndScaleClip(rawPath, segPath, candidate, i);
       if (attempt > 0) {
         log(`  Clip ${i + 1}: recovered with fallback clip`);
       }
@@ -443,22 +618,30 @@ async function concatSegments(segmentPaths, outputPath) {
   );
 }
 
-async function muxFinalVideo(videoPath, audioPath, srtPath, outputPath) {
-  const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
-  const subFilter = `subtitles='${escapedSrt}':force_style='FontName=Arial,FontSize=22,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=80'`;
+async function muxFinalVideo(videoPath, audioPath, assPath, outputPath, totalSeconds) {
+  const escapedAss = assPath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+  const progressWidth = Math.max(1, OUTPUT_WIDTH - 160);
+  const finalFilter = [
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.10:t=fill",
+    "drawbox=x=48:y=70:w=984:h=116:color=black@0.32:t=fill",
+    "drawbox=x=58:y=80:w=964:h=96:color=white@0.05:t=fill",
+    "drawbox=x=70:y=1715:w=940:h=190:color=black@0.34:t=fill",
+    `drawbox=x=80:y=1840:w='min(${progressWidth},${progressWidth}*t/${Math.max(totalSeconds, 1).toFixed(3)})':h=8:color=white@0.92:t=fill`,
+    `subtitles='${escapedAss}'`,
+  ].join(",");
 
   await runFfmpeg(
     ffmpeg()
       .input(videoPath)
       .input(audioPath)
-      .videoFilters(subFilter)
+      .videoFilters(finalFilter)
       .outputOptions([
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        "medium",
         "-crf",
-        "23",
+        "20",
         "-c:a",
         "aac",
         "-b:a",
@@ -471,6 +654,95 @@ async function muxFinalVideo(videoPath, audioPath, srtPath, outputPath) {
       ])
       .output(outputPath)
   );
+}
+
+async function renderFfmpegOverlayVideo({
+  videoPath,
+  audioPath,
+  outputPath,
+  script,
+  totalSeconds,
+  visualPlan,
+  workDir,
+}) {
+  const assPath = path.join(workDir, "captions.ass");
+  await fsp.writeFile(
+    assPath,
+    buildAss(script, totalSeconds, visualPlan),
+    "utf8"
+  );
+  await muxFinalVideo(videoPath, audioPath, assPath, outputPath, totalSeconds);
+}
+
+async function renderRemotionVideo({
+  videoPath,
+  audioPath,
+  outputPath,
+  script,
+  totalSeconds,
+  visualPlan,
+}) {
+  const { renderMedia, selectComposition } = loadRemotionRenderer();
+  const serveUrl = await getRemotionBundle();
+  const inputProps = {
+    videoSrc: pathToFileURL(videoPath).href,
+    audioSrc: pathToFileURL(audioPath).href,
+    durationSeconds: totalSeconds,
+    scenes: buildRemotionScenes(script, totalSeconds, visualPlan),
+  };
+  const composition = await selectComposition({
+    serveUrl,
+    id: "InvideoShort",
+    inputProps,
+  });
+
+  await renderMedia({
+    composition,
+    serveUrl,
+    codec: "h264",
+    outputLocation: outputPath,
+    inputProps,
+    chromiumOptions: {
+      ignoreCertificateErrors: true,
+    },
+  });
+}
+
+function loadRemotionRenderer() {
+  try {
+    return {
+      ...require("@remotion/renderer"),
+      ...require("@remotion/bundler"),
+    };
+  } catch (err) {
+    throw new Error(
+      `Remotion packages are not installed. Run install later in renderer/ or set RENDER_ENGINE=ffmpeg. ${errorMessage(err)}`
+    );
+  }
+}
+
+async function getRemotionBundle() {
+  if (!remotionBundlePromise) {
+    const { bundle } = loadRemotionRenderer();
+    remotionBundlePromise = bundle({
+      entryPoint: path.join(__dirname, "remotion", "index.jsx"),
+    });
+  }
+  return remotionBundlePromise;
+}
+
+function buildRemotionScenes(script, totalSeconds, visualPlan) {
+  return buildTimedPhrases(script, totalSeconds, visualPlan).map((phrase, index) => {
+    const beat = visualPlan[index] ?? {};
+    return {
+      start: phrase.start,
+      end: phrase.end,
+      captionText: phrase.text,
+      overlayText: phrase.overlay_text || shortOverlayFromText(phrase.text),
+      visualTreatment: beat.visual_treatment || "push_in",
+      patternInterrupt: Boolean(beat.pattern_interrupt),
+    };
+  });
 }
 
 async function uploadRender(localPath, videoId) {
@@ -538,15 +810,40 @@ async function processJob(job) {
     const concatPath = path.join(workDir, "concat.mp4");
     await concatSegments(segmentPaths, concatPath);
 
-    const srtPath = path.join(workDir, "captions.srt");
-    await fsp.writeFile(
-      srtPath,
-      buildSrt(script || "", audioDuration, renderVisualPlan),
-      "utf8"
-    );
-
     const outputPath = path.join(workDir, "output.mp4");
-    await muxFinalVideo(concatPath, localAudio, srtPath, outputPath);
+    if (RENDER_ENGINE === "remotion") {
+      try {
+        await renderRemotionVideo({
+          videoPath: concatPath,
+          audioPath: localAudio,
+          outputPath,
+          script: script || "",
+          totalSeconds: audioDuration,
+          visualPlan: renderVisualPlan,
+        });
+      } catch (err) {
+        log(`Remotion render failed, falling back to FFmpeg overlay: ${errorMessage(err)}`);
+        await renderFfmpegOverlayVideo({
+          videoPath: concatPath,
+          audioPath: localAudio,
+          outputPath,
+          script: script || "",
+          totalSeconds: audioDuration,
+          visualPlan: renderVisualPlan,
+          workDir,
+        });
+      }
+    } else {
+      await renderFfmpegOverlayVideo({
+        videoPath: concatPath,
+        audioPath: localAudio,
+        outputPath,
+        script: script || "",
+        totalSeconds: audioDuration,
+        visualPlan: renderVisualPlan,
+        workDir,
+      });
+    }
 
     const renderPath = await uploadRender(outputPath, videoId);
     await markReady(videoId, renderPath);

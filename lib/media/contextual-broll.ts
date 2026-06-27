@@ -25,7 +25,7 @@ export async function fetchContextualBroll(input: {
 
   for (const beat of visualPlan) {
     const query = beat.visual_query || fallbackKeywords.join(" ");
-    const candidates = await safeFetchPortraitClips([query], 4);
+    const candidates = await safeFetchPortraitClips([query], 8);
     const clip =
       candidates.find((candidate) => !usedIds.has(candidate.id)) ??
       candidates[0] ??
@@ -68,6 +68,12 @@ function normalizeVisualPlan(visualPlan: VisualPlanItem[]): VisualPlanItem[] {
       duration_seconds: Number.isFinite(Number(beat.duration_seconds))
         ? Number(beat.duration_seconds)
         : 3,
+      overlay_text: String(beat.overlay_text ?? "").trim() || undefined,
+      emphasis_terms: Array.isArray(beat.emphasis_terms)
+        ? beat.emphasis_terms.map(String).map((term) => term.trim()).filter(Boolean)
+        : undefined,
+      visual_treatment: beat.visual_treatment,
+      pattern_interrupt: Boolean(beat.pattern_interrupt),
     }))
     .filter((beat) => beat.text && beat.visual_query)
     .slice(0, 40);

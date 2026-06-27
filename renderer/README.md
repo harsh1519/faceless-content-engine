@@ -51,6 +51,7 @@ Optional:
 | Variable | Default | Description |
 |---|---|---|
 | `POLL_INTERVAL_MS` | `30000` | Poll interval when running continuously |
+| `RENDER_ENGINE` | `ffmpeg` | Use `remotion` for the React-based InVideo-style compositor, falls back to FFmpeg overlay if unavailable |
 
 ## Install & run
 
@@ -62,6 +63,18 @@ npm install
 npm start          # poll every 30s
 npm run once       # process current queue once, then exit
 ```
+
+## Remotion compositor
+
+The renderer includes an optional Remotion template for a more InVideo-like output with layered cards, animated captions, gradients, and progress UI.
+
+Enable it after installing renderer dependencies:
+
+```bash
+RENDER_ENGINE=remotion npm start
+```
+
+If Remotion packages are not installed or a Remotion render fails, the worker logs the issue and falls back to the FFmpeg overlay renderer for that job.
 
 ## What the renderer does
 
