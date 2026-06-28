@@ -52,6 +52,9 @@ Optional:
 |---|---|---|
 | `POLL_INTERVAL_MS` | `30000` | Poll interval when running continuously |
 | `RENDER_ENGINE` | `ffmpeg` | Use `remotion` for the React-based InVideo-style compositor, falls back to FFmpeg overlay if unavailable |
+| `DOWNLOAD_TIMEOUT_MS` | `30000` | Per-attempt timeout for remote B-roll downloads |
+| `DOWNLOAD_RETRIES` | `3` | Number of attempts per clip URL before trying another clip |
+| `CLIP_CACHE_DIR` | OS temp dir | Local cache for downloaded Pexels clips, avoids re-downloading the same URLs |
 
 ## Install & run
 
@@ -115,5 +118,6 @@ After a successful render, open the **Content Pipeline** → **Ready / Approve**
 ## Development tips
 
 - Use `npm run once` while testing — avoids a long-running poll loop
+- Pexels clips are streamed to disk and cached. If a CDN URL is slow, increase `DOWNLOAD_TIMEOUT_MS` or clear `CLIP_CACHE_DIR`.
 - Temp files are written to the OS temp dir and cleaned up after each job
 - Check Supabase **Table Editor** → `content_objects` for `render_path` and status changes

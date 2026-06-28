@@ -94,12 +94,24 @@ function pickBestPortraitFile(
     );
   }
 
-  return mp4Portrait.sort((a, b) => b.height - a.height)[0];
+  const practicalPortrait = mp4Portrait.filter((f) => f.height <= 1280);
+  const candidates = practicalPortrait.length > 0 ? practicalPortrait : mp4Portrait;
+
+  return candidates.sort((a, b) => scoreFileForDownload(b) - scoreFileForDownload(a))[0];
+}
+
+function scoreFileForDownload(file: PexelsVideoFile): number {
+  const verticalRatio = file.height / Math.max(file.width, 1);
+  const targetHeightScore = 100 - Math.abs(file.height - 1080) / 12;
+  const verticalScore = Math.min(verticalRatio / 1.75, 1.2) * 20;
+  const qualityPenalty = file.height > 1280 ? 25 : 0;
+
+  return targetHeightScore + verticalScore - qualityPenalty;
 }
 
 function scoreClip(file: PexelsVideoFile, duration: number): number {
   const verticalRatio = file.height / Math.max(file.width, 1);
-  const resolutionScore = Math.min(file.height / 1920, 1.4) * 40;
+  const resolutionScore = Math.max(0, 40 - Math.abs(file.height - 1080) / 24);
   const verticalScore = Math.min(verticalRatio / 1.75, 1.2) * 30;
   const durationScore =
     duration >= 2 && duration <= 12
@@ -109,6 +121,9 @@ function scoreClip(file: PexelsVideoFile, duration: number): number {
         : 5;
   const qualityScore =
     file.quality === "hd" || file.quality === "uhd" ? 10 : 4;
+  const hugeFilePenalty = file.height > 1280 ? 25 : 0;
 
-  return Math.round(resolutionScore + verticalScore + durationScore + qualityScore);
+  return Math.round(
+    resolutionScore + verticalScore + durationScore + qualityScore - hugeFilePenalty
+  );
 }

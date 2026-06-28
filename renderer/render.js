@@ -9,8 +9,12 @@
  */
 
 const fsp = require("fs/promises");
+const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
 const { execFileSync } = require("child_process");
 const { pathToFileURL } = require("url");
 
@@ -35,6 +39,10 @@ const OUTPUT_HEIGHT = 1920;
 const MAX_CLIP_SECONDS = Number(process.env.MAX_CLIP_SECONDS || 2.2);
 const MAX_PLANNED_CLIP_SECONDS = Number(process.env.MAX_PLANNED_CLIP_SECONDS || 4.5);
 const DOWNLOAD_TIMEOUT_MS = Number(process.env.DOWNLOAD_TIMEOUT_MS || 30_000);
+const DOWNLOAD_RETRIES = Math.max(1, Number(process.env.DOWNLOAD_RETRIES || 3));
+const CLIP_CACHE_DIR = path.resolve(
+  process.env.CLIP_CACHE_DIR || path.join(os.tmpdir(), "faceless-renderer-clip-cache")
+);
 const BUCKET = "media";
 const LOCAL_MEDIA_PREFIX = "local/";
 const LOCAL_MEDIA_ROOT = process.env.LOCAL_MEDIA_ROOT
@@ -156,6 +164,42 @@ async function downloadUrl(url, destPath) {
     throw new Error(`Invalid clip URL: ${url || "(empty)"}`);
   }
 
+  await fsp.mkdir(path.dirname(destPath), { recursive: true });
+  const cachePath = cachePathForUrl(url);
+  const cached = await isUsableFile(cachePath);
+  if (cached) {
+    await fsp.copyFile(cachePath, destPath);
+    return;
+  }
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
+    try {
+      await streamDownloadUrl(url, cachePath);
+      await fsp.copyFile(cachePath, destPath);
+      if (attempt > 1) {
+        log(`  Download recovered on retry ${attempt}/${DOWNLOAD_RETRIES}`);
+      }
+      return;
+    } catch (err) {
+      lastError = err;
+      await fsp.rm(cachePath, { force: true }).catch(() => {});
+      if (attempt < DOWNLOAD_RETRIES) {
+        const waitMs = 750 * attempt;
+        log(
+          `  Download retry ${attempt}/${DOWNLOAD_RETRIES} failed (${errorMessage(err)}); waiting ${waitMs}ms`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function streamDownloadUrl(url, destPath) {
+  await fsp.mkdir(path.dirname(destPath), { recursive: true });
+  const tmpPath = `${destPath}.${process.pid}.${Date.now()}.tmp`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
 
@@ -164,15 +208,44 @@ async function downloadUrl(url, destPath) {
     if (!res.ok) {
       throw new Error(`Download failed (${res.status}): ${url}`);
     }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    await fsp.writeFile(destPath, buffer);
+    if (!res.body) {
+      throw new Error(`Download response had no body: ${url}`);
+    }
+
+    const contentLength = Number(res.headers.get("content-length") || 0);
+    log(
+      `  Downloading ${contentLength ? `${(contentLength / 1024 / 1024).toFixed(1)}MB` : "clip"}`
+    );
+    await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(tmpPath));
+    const stat = await fsp.stat(tmpPath);
+    if (stat.size <= 0) {
+      throw new Error(`Downloaded empty clip: ${url}`);
+    }
+    await fsp.rename(tmpPath, destPath);
   } catch (err) {
+    await fsp.rm(tmpPath, { force: true }).catch(() => {});
     if (err?.name === "AbortError") {
       throw new Error(`Download timed out after ${DOWNLOAD_TIMEOUT_MS}ms: ${url}`);
     }
     throw err;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function cachePathForUrl(url) {
+  const parsed = new URL(url);
+  const ext = path.extname(parsed.pathname) || ".mp4";
+  const key = crypto.createHash("sha1").update(url).digest("hex");
+  return path.join(CLIP_CACHE_DIR, `${key}${ext}`);
+}
+
+async function isUsableFile(filePath) {
+  try {
+    const stat = await fsp.stat(filePath);
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
   }
 }
 
