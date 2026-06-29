@@ -6,6 +6,9 @@ export interface BrollClip {
   duration: number;
   photographer?: string;
   quality_score?: number;
+  media_type?: "video" | "image";
+  source?: "pexels" | "unsplash" | "wikimedia" | "nasa" | "openverse";
+  alt?: string;
 }
 
 const PEXELS_API = "https://api.pexels.com/videos/search";
@@ -70,6 +73,8 @@ export async function fetchPortraitClips(
       duration: video.duration,
       photographer: video.user?.name,
       quality_score: scoreClip(file, video.duration),
+      media_type: "video",
+      source: "pexels",
     });
   }
 

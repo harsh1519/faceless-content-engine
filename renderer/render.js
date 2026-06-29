@@ -316,7 +316,7 @@ function buildAss(script, totalSeconds, visualPlan = []) {
     const overlayStart = phrase.start;
     const overlayEnd = Math.min(phrase.end, phrase.start + 1.45);
 
-    if (overlay && overlayEnd > overlayStart + 0.2) {
+    if (overlay && overlayEnd > overlayStart + 0.2 && !isSimilarText(overlay, phrase.text)) {
       events.push(
         `Dialogue: 1,${formatAssTime(overlayStart)},${formatAssTime(overlayEnd)},Overlay,,0,0,0,,${assText(overlay.toUpperCase(), 24)}`
       );
@@ -326,13 +326,6 @@ function buildAss(script, totalSeconds, visualPlan = []) {
       `Dialogue: 0,${formatAssTime(phrase.start)},${formatAssTime(phrase.end)},Caption,,0,0,0,,${assText(phrase.text, 34)}`
     );
   });
-
-  const firstOverlay = phrases[0]?.overlay_text || shortOverlayFromText(phrases[0]?.text || "");
-  if (firstOverlay) {
-    events.unshift(
-      `Dialogue: 2,${formatAssTime(0)},${formatAssTime(Math.min(1.15, totalSeconds))},Hook,,0,0,0,,${assText(firstOverlay.toUpperCase(), 22)}`
-    );
-  }
 
   return `[Script Info]
 ScriptType: v4.00+
@@ -344,7 +337,6 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,Arial,58,&H00FFFFFF,&H000000FF,&H00101010,&HAA000000,-1,0,0,0,100,100,0,0,3,3,1,2,86,86,178,1
 Style: Overlay,Arial,44,&H00FFFFFF,&H000000FF,&H00241610,&HBB111111,-1,0,0,0,100,100,1,0,3,2,0,8,92,92,122,1
-Style: Hook,Arial,64,&H00FFFFFF,&H000000FF,&H00000000,&HE01C1410,-1,0,0,0,100,100,1,0,3,3,1,5,90,90,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -410,6 +402,27 @@ function shortOverlayFromText(text) {
     .slice(0, 42);
 }
 
+function isSimilarText(a, b) {
+  const left = normalizeComparableText(a);
+  const right = normalizeComparableText(b);
+  if (!left || !right) return false;
+  if (right.includes(left) || left.includes(right)) return true;
+
+  const leftWords = new Set(left.split(" ").filter((word) => word.length > 2));
+  const rightWords = new Set(right.split(" ").filter((word) => word.length > 2));
+  if (!leftWords.size || !rightWords.size) return false;
+  const overlap = Array.from(leftWords).filter((word) => rightWords.has(word)).length;
+  return overlap / Math.min(leftWords.size, rightWords.size) >= 0.75;
+}
+
+function normalizeComparableText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function formatAssTime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -448,13 +461,14 @@ function wrapAssText(text, lineLength) {
 
 /** Build segment list looping broll until audio duration is covered. */
 function planSegments(clips, audioDuration, visualPlan = []) {
-  if (!clips.length) throw new Error("No broll clips available");
   if (!Number.isFinite(audioDuration) || audioDuration <= 0) {
     throw new Error("Audio duration is invalid");
   }
 
   const plannedSegments = planVisualSegments(clips, audioDuration, visualPlan);
   if (plannedSegments.length > 0) return plannedSegments;
+
+  if (!clips.length) throw new Error("No broll clips available");
 
   const segments = [];
   let total = 0;
@@ -514,6 +528,8 @@ function normalizeVisualPlanForRender(visualPlan) {
         emphasis_terms: Array.isArray(beat?.emphasis_terms)
           ? beat.emphasis_terms.map(String).filter(Boolean)
           : [],
+        asset_source: String(beat?.asset_source ?? "").trim(),
+        asset_type: String(beat?.asset_type ?? "").trim(),
         visual_treatment: String(beat?.visual_treatment ?? "").trim(),
         pattern_interrupt: Boolean(beat?.pattern_interrupt),
         ...(clip && { clip }),
@@ -529,9 +545,11 @@ function normalizeClip(clip) {
   if (!isHttpUrl(url)) return null;
 
   const duration = Number(clip.duration);
+  const mediaType = clip.media_type === "image" ? "image" : "video";
   return {
     ...clip,
     url,
+    media_type: mediaType,
     duration: Number.isFinite(duration) && duration > 0 ? duration : MAX_CLIP_SECONDS,
   };
 }
@@ -542,7 +560,9 @@ function isHttpUrl(value) {
 
 function planVisualSegments(clips, audioDuration, visualPlan) {
   const beats = visualPlan.filter(
-    (beat) => beat?.clip?.url && Number(beat.duration_seconds) > 0
+    (beat) =>
+      (beat?.clip?.url || beat?.asset_source === "generated_card" || beat?.asset_type === "card") &&
+      Number(beat.duration_seconds) > 0
   );
   if (!beats.length) return [];
 
@@ -561,13 +581,15 @@ function planVisualSegments(clips, audioDuration, visualPlan) {
     const clipDur = Math.min(
       Math.max(targetDuration, 0.5),
       MAX_PLANNED_CLIP_SECONDS,
-      clip.duration || MAX_PLANNED_CLIP_SECONDS
+      clip?.duration || MAX_PLANNED_CLIP_SECONDS
     );
 
     segments.push({
-      url: clip.url,
+      url: clip?.url || "",
       duration: clipDur,
       index: Number.isFinite(Number(beat.beat_index)) ? Number(beat.beat_index) : i,
+      media_type: clip?.media_type || "card",
+      overlay_text: beat.overlay_text,
       visual_treatment: beat.pattern_interrupt ? "snap_zoom" : beat.visual_treatment,
       pattern_interrupt: Boolean(beat.pattern_interrupt),
     });
@@ -576,10 +598,16 @@ function planVisualSegments(clips, audioDuration, visualPlan) {
 
   let index = 0;
   while (total < audioDuration - 0.05) {
+    if (!clips.length) break;
     const clip = clips[index % clips.length];
     const remaining = audioDuration - total;
     const clipDur = Math.min(MAX_CLIP_SECONDS, remaining, clip.duration || MAX_CLIP_SECONDS);
-    segments.push({ url: clip.url, duration: clipDur, index: index % clips.length });
+    segments.push({
+      url: clip.url,
+      duration: clipDur,
+      index: index % clips.length,
+      media_type: clip.media_type || "video",
+    });
     total += clipDur;
     index++;
     if (index > MAX_BROLL_SEGMENTS)
@@ -631,9 +659,15 @@ function buildMotionCrop(treatment, segmentIndex) {
 }
 
 async function trimAndScaleClip(inputPath, outputPath, segment, segmentIndex) {
+  const command = ffmpeg(inputPath);
+  if (segment.media_type === "image") {
+    command.inputOptions(["-loop", "1"]);
+  } else {
+    command.setStartTime(0);
+  }
+
   await runFfmpeg(
-    ffmpeg(inputPath)
-      .setStartTime(0)
+    command
       .duration(segment.duration)
       .videoFilters(buildClipFilters(segment, segmentIndex))
       .outputOptions(["-an", "-r", "30", "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p"])
@@ -642,6 +676,12 @@ async function trimAndScaleClip(inputPath, outputPath, segment, segmentIndex) {
 }
 
 async function renderSegmentWithFallback(segment, i, workDir, fallbackClips) {
+  if (segment.media_type === "card") {
+    const segPath = path.join(workDir, `seg-${i}.mp4`);
+    await renderGeneratedCardSegment(segment, segPath, i);
+    return segPath;
+  }
+
   const candidates = [
     segment,
     ...fallbackClips
@@ -650,6 +690,7 @@ async function renderSegmentWithFallback(segment, i, workDir, fallbackClips) {
       .map((clip) => ({
         url: clip.url,
         duration: Math.min(segment.duration, clip.duration || segment.duration),
+        media_type: clip.media_type || "video",
         visual_treatment: segment.visual_treatment,
         pattern_interrupt: segment.pattern_interrupt,
       })),
@@ -677,6 +718,36 @@ async function renderSegmentWithFallback(segment, i, workDir, fallbackClips) {
   throw new Error(`All clip attempts failed for segment ${i + 1}: ${errorMessage(lastError)}`);
 }
 
+async function renderGeneratedCardSegment(segment, outputPath, segmentIndex) {
+  const palette = [
+    "0x08111f",
+    "0x111827",
+    "0x120b2e",
+    "0x052e2b",
+  ];
+  const color = palette[segmentIndex % palette.length];
+  const treatmentSegment = {
+    ...segment,
+    media_type: "image",
+    visual_treatment: segment.visual_treatment || "push_in",
+  };
+
+  await runFfmpeg(
+    ffmpeg()
+      .input(`color=c=${color}:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:r=30`)
+      .inputOptions(["-f", "lavfi"])
+      .duration(segment.duration)
+      .videoFilters([
+        "format=yuv420p",
+        "noise=alls=5:allf=t",
+        "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)'",
+        buildClipFilters(treatmentSegment, segmentIndex),
+      ].join(","))
+      .outputOptions(["-an", "-r", "30", "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p"])
+      .output(outputPath)
+  );
+}
+
 async function concatSegments(segmentPaths, outputPath) {
   const listPath = outputPath.replace(".mp4", "-list.txt");
   const listContent = segmentPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n");
@@ -696,8 +767,6 @@ async function muxFinalVideo(videoPath, audioPath, assPath, outputPath, totalSec
   const progressWidth = Math.max(1, OUTPUT_WIDTH - 160);
   const finalFilter = [
     "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.10:t=fill",
-    "drawbox=x=48:y=70:w=984:h=116:color=black@0.32:t=fill",
-    "drawbox=x=58:y=80:w=964:h=96:color=white@0.05:t=fill",
     "drawbox=x=70:y=1715:w=940:h=190:color=black@0.34:t=fill",
     `drawbox=x=80:y=1840:w='min(${progressWidth},${progressWidth}*t/${Math.max(totalSeconds, 1).toFixed(3)})':h=8:color=white@0.92:t=fill`,
     `subtitles='${escapedAss}'`,
@@ -812,6 +881,7 @@ function buildRemotionScenes(script, totalSeconds, visualPlan) {
       end: phrase.end,
       captionText: phrase.text,
       overlayText: phrase.overlay_text || shortOverlayFromText(phrase.text),
+      showOverlay: !isSimilarText(phrase.overlay_text || shortOverlayFromText(phrase.text), phrase.text),
       visualTreatment: beat.visual_treatment || "push_in",
       patternInterrupt: Boolean(beat.pattern_interrupt),
     };
@@ -851,7 +921,10 @@ async function processJob(job) {
 
   const renderVisualPlan = normalizeVisualPlanForRender(visualPlan);
   const clips = normalizeJobClips(brollUrls, renderVisualPlan);
-  if (!clips.length) {
+  const hasGeneratedCards = renderVisualPlan.some(
+    (beat) => beat.asset_source === "generated_card" || beat.asset_type === "card"
+  );
+  if (!clips.length && !hasGeneratedCards) {
     throw new Error("No usable B-roll clips available");
   }
 

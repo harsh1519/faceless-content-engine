@@ -53,7 +53,6 @@ export function InvideoShort({ videoSrc, audioSrc, scenes = [], durationSeconds 
         <SceneLayer key={`${scene.start}-${index}`} scene={scene} index={index} />
       ))}
 
-      <HookCard scene={scenes[0]} />
       <TopicPill scene={activeScene} />
       <ProgressBar progress={progress} />
     </AbsoluteFill>
@@ -87,17 +86,19 @@ function SceneOverlay({ scene, index }) {
 
   return (
     <AbsoluteFill>
-      <div
-        style={{
-          ...styles.overlayCard,
-          opacity,
-          transform: `translateY(${lift}px) scale(${scale})`,
-          borderColor: `${accent}99`,
-        }}
-      >
-        <div style={{ ...styles.accentBar, background: accent }} />
-        <div style={styles.overlayText}>{scene.overlayText || shortText(scene.captionText)}</div>
-      </div>
+      {scene.showOverlay ? (
+        <div
+          style={{
+            ...styles.overlayCard,
+            opacity,
+            transform: `translateY(${lift}px) scale(${scale})`,
+            borderColor: `${accent}99`,
+          }}
+        >
+          <div style={{ ...styles.accentBar, background: accent }} />
+          <div style={styles.overlayText}>{scene.overlayText || shortText(scene.captionText)}</div>
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -109,26 +110,6 @@ function SceneOverlay({ scene, index }) {
         <div style={styles.captionText}>{scene.captionText}</div>
       </div>
     </AbsoluteFill>
-  );
-}
-
-function HookCard({ scene }) {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const entrance = spring({ frame, fps, config: { damping: 16, stiffness: 130 } });
-  const opacity = interpolate(frame, [0, 8, 34, 44], [0, 1, 1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const scale = interpolate(entrance, [0, 1], [0.82, 1]);
-
-  if (!scene) return null;
-
-  return (
-    <div style={{ ...styles.hookCard, opacity, transform: `translate(-50%, -50%) scale(${scale})` }}>
-      <div style={styles.hookKicker}>WATCH THIS</div>
-      <div style={styles.hookTitle}>{scene.overlayText || shortText(scene.captionText)}</div>
-    </div>
   );
 }
 

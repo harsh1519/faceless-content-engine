@@ -12,6 +12,8 @@ interface RawVisualPlanItem {
   duration_seconds?: unknown;
   overlay_text?: unknown;
   emphasis_terms?: unknown;
+  asset_source?: unknown;
+  asset_type?: unknown;
   visual_treatment?: unknown;
   pattern_interrupt?: unknown;
 }
@@ -19,6 +21,8 @@ interface RawVisualPlanItem {
 const SHORT_FORM_BEATS = { min: 10, max: 16 };
 const LONG_FORM_BEATS = { min: 18, max: 36 };
 const VISUAL_TREATMENTS = ["push_in", "pull_out", "side_pan", "snap_zoom"] as const;
+const ASSET_SOURCES = ["pexels", "unsplash", "wikimedia", "nasa", "openverse", "generated_card"] as const;
+const ASSET_TYPES = ["video", "image", "card"] as const;
 
 export function buildVisualPlanPrompt(input: VisualPlanPromptInput): string {
   const productionType = input.production_type ?? "short";
@@ -36,14 +40,20 @@ Context:
 - Niche/topic: ${input.niche?.trim() || "general educational/social video"}
 - Production type: ${productionType}
 - Beat count: ${beats.min}-${beats.max}
-- Visual source: stock portrait B-roll search, so every query must be concrete and searchable on Pexels.
+- Visual sources available: pexels video, unsplash image, wikimedia image, nasa image, openverse image, generated_card.
 - Goal: high user retention, premium visual rhythm, curiosity, and clear meaning in the first second.
 
 Rules:
 - Match each visual beat to what is being said in that moment.
 - Prefer specific nouns, places, emotions, eras, objects, and actions.
 - Avoid abstract queries like "success", "truth", "history facts", or "motivation".
-- Do not request text overlays, captions, celebrities, copyrighted footage, or exact people.
+- Avoid generic robots/androids/humanoids unless the script specifically mentions robots.
+- For AI/business/productivity, prefer humans using devices, workspaces, data centers, UI-style cards, or clean abstract cards.
+- For nature/cities/travel, prefer real places, landscapes, streets, landmarks, aerials, or tasteful still images.
+- For space/science, prefer nasa or wikimedia image sources when specific real imagery fits.
+- For specific landmarks, animals, historical/science objects, prefer wikimedia/openverse images over random stock video.
+- For abstract concepts, use generated_card instead of random stock footage.
+- Do not request celebrities, copyrighted footage, or exact living people.
 - Duration should usually be 2-4 seconds for short form and 3-6 seconds for long form.
 - Make the first 2 beats visually strong enough to stop scrolling.
 - Add a short overlay_text for each beat using 2-6 words, not a full sentence.
@@ -60,6 +70,8 @@ Return ONLY valid JSON in this exact shape:
     "duration_seconds": 3,
     "overlay_text": "short punchy phrase",
     "emphasis_terms": ["important", "words"],
+    "asset_source": "pexels",
+    "asset_type": "video",
     "visual_treatment": "push_in",
     "pattern_interrupt": false
   }
@@ -126,6 +138,8 @@ function normalizeVisualPlanItem(
       : 3,
     overlay_text: normalizeOverlayText(raw.overlay_text, text),
     emphasis_terms: normalizeEmphasisTerms(raw.emphasis_terms, text),
+    asset_source: normalizeAssetSource(raw.asset_source, query, fallbackNiche),
+    asset_type: normalizeAssetType(raw.asset_type, raw.asset_source),
     visual_treatment: normalizeTreatment(raw.visual_treatment, index),
     pattern_interrupt:
       typeof raw.pattern_interrupt === "boolean"
@@ -156,6 +170,8 @@ function fallbackVisualPlan(
     duration_seconds: 3,
     overlay_text: normalizeOverlayText(null, part),
     emphasis_terms: normalizeEmphasisTerms(null, part),
+    asset_source: inferAssetSource(part, fallbackNiche),
+    asset_type: inferAssetSource(part, fallbackNiche) === "pexels" ? "video" : "image",
     visual_treatment: normalizeTreatment(null, index),
     pattern_interrupt: index > 0 && index % 4 === 0,
   }));
@@ -206,4 +222,48 @@ function normalizeTreatment(raw: unknown, index: number): VisualPlanItem["visual
     return value as VisualPlanItem["visual_treatment"];
   }
   return VISUAL_TREATMENTS[index % VISUAL_TREATMENTS.length];
+}
+
+function normalizeAssetSource(
+  raw: unknown,
+  query: string,
+  fallbackNiche?: string | null
+): VisualPlanItem["asset_source"] {
+  const value = String(raw ?? "").trim();
+  if (ASSET_SOURCES.includes(value as (typeof ASSET_SOURCES)[number])) {
+    return value as VisualPlanItem["asset_source"];
+  }
+  return inferAssetSource(query, fallbackNiche);
+}
+
+function normalizeAssetType(
+  rawType: unknown,
+  rawSource: unknown
+): VisualPlanItem["asset_type"] {
+  const value = String(rawType ?? "").trim();
+  if (ASSET_TYPES.includes(value as (typeof ASSET_TYPES)[number])) {
+    return value as VisualPlanItem["asset_type"];
+  }
+  const source = String(rawSource ?? "").trim();
+  if (source === "generated_card") return "card";
+  if (["unsplash", "wikimedia", "nasa", "openverse"].includes(source)) return "image";
+  return "video";
+}
+
+function inferAssetSource(text: string, fallbackNiche?: string | null): VisualPlanItem["asset_source"] {
+  const haystack = `${text} ${fallbackNiche ?? ""}`.toLowerCase();
+
+  if (/\b(space|nasa|mars|moon|planet|galaxy|rocket|astronaut|telescope|nebula)\b/.test(haystack)) {
+    return "nasa";
+  }
+  if (/\b(history|ancient|map|landmark|monument|city|country|animal|species|museum|castle|temple)\b/.test(haystack)) {
+    return "wikimedia";
+  }
+  if (/\b(abstract|idea|concept|reason|mistake|steps|framework|timeline|comparison|stat|data)\b/.test(haystack)) {
+    return "generated_card";
+  }
+  if (/\b(nature|forest|mountain|ocean|travel|architecture|street|skyline)\b/.test(haystack)) {
+    return "unsplash";
+  }
+  return "pexels";
 }

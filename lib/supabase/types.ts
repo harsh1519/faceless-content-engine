@@ -123,6 +123,9 @@ export interface BrollClip {
   duration: number;
   photographer?: string;
   quality_score?: number;
+  media_type?: "video" | "image";
+  source?: "pexels" | "unsplash" | "wikimedia" | "nasa" | "openverse";
+  alt?: string;
 }
 
 export interface VisualPlanItem {
@@ -132,6 +135,8 @@ export interface VisualPlanItem {
   duration_seconds: number;
   overlay_text?: string;
   emphasis_terms?: string[];
+  asset_source?: "pexels" | "unsplash" | "wikimedia" | "nasa" | "openverse" | "generated_card";
+  asset_type?: "video" | "image" | "card";
   visual_treatment?: "push_in" | "pull_out" | "side_pan" | "snap_zoom";
   pattern_interrupt?: boolean;
   clip?: BrollClip;

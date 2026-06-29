@@ -1,3 +1,4 @@
+import { fetchFreeImageAsset } from "@/lib/media/free-media-sources";
 import { fetchPortraitClips, type BrollClip } from "@/lib/media/pexels";
 import type { VisualPlanItem } from "@/lib/supabase/types";
 
@@ -25,7 +26,7 @@ export async function fetchContextualBroll(input: {
 
   for (const beat of visualPlan) {
     const query = beat.visual_query || fallbackKeywords.join(" ");
-    const candidates = await safeFetchPortraitClips([query], 8);
+    const candidates = await fetchCandidatesForBeat(beat, query);
     const clip =
       candidates.find((candidate) => !usedIds.has(candidate.id)) ??
       candidates[0] ??
@@ -72,11 +73,64 @@ function normalizeVisualPlan(visualPlan: VisualPlanItem[]): VisualPlanItem[] {
       emphasis_terms: Array.isArray(beat.emphasis_terms)
         ? beat.emphasis_terms.map(String).map((term) => term.trim()).filter(Boolean)
         : undefined,
+      asset_source: beat.asset_source,
+      asset_type: beat.asset_type,
       visual_treatment: beat.visual_treatment,
       pattern_interrupt: Boolean(beat.pattern_interrupt),
     }))
     .filter((beat) => beat.text && beat.visual_query)
     .slice(0, 40);
+}
+
+async function fetchCandidatesForBeat(
+  beat: VisualPlanItem,
+  query: string
+): Promise<BrollClip[]> {
+  const source = beat.asset_source ?? "pexels";
+  const type = beat.asset_type ?? "video";
+
+  if (source === "generated_card") return [];
+
+  if (type === "image" && source !== "pexels") {
+    const image = await safeFetchImageAsset(source, query);
+    if (image) return [image];
+  }
+
+  const pexels = await safeFetchPortraitClips([query], 8);
+  if (pexels.length > 0) return pexels;
+
+  if (source !== "pexels" && source !== "generated_card") {
+    const image = await safeFetchImageAsset(source, query);
+    return image ? [image] : [];
+  }
+
+  return [];
+}
+
+async function safeFetchImageAsset(
+  source: VisualPlanItem["asset_source"],
+  query: string
+): Promise<BrollClip | null> {
+  if (
+    source !== "unsplash" &&
+    source !== "wikimedia" &&
+    source !== "nasa" &&
+    source !== "openverse"
+  ) {
+    return null;
+  }
+
+  try {
+    return await fetchFreeImageAsset({ source, query });
+  } catch (error) {
+    console.warn(
+      "[contextual-broll] image lookup failed",
+      source,
+      query,
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
 }
 
 async function safeFetchPortraitClips(
