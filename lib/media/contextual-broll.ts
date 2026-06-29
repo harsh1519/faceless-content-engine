@@ -1,13 +1,19 @@
 import { fetchFreeImageAsset } from "@/lib/media/free-media-sources";
-import { fetchPortraitClips, type BrollClip } from "@/lib/media/pexels";
-import type { VisualPlanItem } from "@/lib/supabase/types";
+import {
+  fetchLandscapeClips,
+  fetchPortraitClips,
+  type BrollClip,
+} from "@/lib/media/pexels";
+import type { ProductionType, VisualPlanItem } from "@/lib/supabase/types";
 
 export async function fetchContextualBroll(input: {
   visual_plan: VisualPlanItem[];
   fallback_keywords: string[];
+  production_type?: ProductionType;
 }): Promise<{ broll_urls: BrollClip[]; visual_plan: VisualPlanItem[] }> {
   const visualPlan = normalizeVisualPlan(input.visual_plan);
   const fallbackKeywords = normalizeKeywords(input.fallback_keywords);
+  const productionType = input.production_type ?? "short";
 
   if (visualPlan.length === 0) {
     if (fallbackKeywords.length === 0) {
@@ -15,7 +21,7 @@ export async function fetchContextualBroll(input: {
     }
 
     return {
-      broll_urls: await fetchPortraitClips(fallbackKeywords),
+      broll_urls: await fetchStockClips(fallbackKeywords, 5, productionType),
       visual_plan: [],
     };
   }
@@ -26,7 +32,7 @@ export async function fetchContextualBroll(input: {
 
   for (const beat of visualPlan) {
     const query = beat.visual_query || fallbackKeywords.join(" ");
-    const candidates = await fetchCandidatesForBeat(beat, query);
+    const candidates = await fetchCandidatesForBeat(beat, query, productionType);
     const clip =
       candidates.find((candidate) => !usedIds.has(candidate.id)) ??
       candidates[0] ??
@@ -51,7 +57,7 @@ export async function fetchContextualBroll(input: {
   }
 
   return {
-    broll_urls: await fetchPortraitClips(fallbackKeywords),
+    broll_urls: await fetchStockClips(fallbackKeywords, 5, productionType),
     visual_plan: visualPlan,
   };
 }
@@ -84,7 +90,8 @@ function normalizeVisualPlan(visualPlan: VisualPlanItem[]): VisualPlanItem[] {
 
 async function fetchCandidatesForBeat(
   beat: VisualPlanItem,
-  query: string
+  query: string,
+  productionType: ProductionType
 ): Promise<BrollClip[]> {
   const source = beat.asset_source ?? "pexels";
   const type = beat.asset_type ?? "video";
@@ -96,7 +103,7 @@ async function fetchCandidatesForBeat(
     if (image) return [image];
   }
 
-  const pexels = await safeFetchPortraitClips([query], 8);
+  const pexels = await safeFetchStockClips([query], 8, productionType);
   if (pexels.length > 0) return pexels;
 
   if (source !== "pexels" && source !== "generated_card") {
@@ -133,12 +140,13 @@ async function safeFetchImageAsset(
   }
 }
 
-async function safeFetchPortraitClips(
+async function safeFetchStockClips(
   keywords: string[],
-  perPage: number
+  perPage: number,
+  productionType: ProductionType
 ): Promise<BrollClip[]> {
   try {
-    return await fetchPortraitClips(keywords, perPage);
+    return await fetchStockClips(keywords, perPage, productionType);
   } catch (error) {
     console.warn(
       "[contextual-broll] Pexels lookup failed",
@@ -147,6 +155,16 @@ async function safeFetchPortraitClips(
     );
     return [];
   }
+}
+
+function fetchStockClips(
+  keywords: string[],
+  perPage: number,
+  productionType: ProductionType
+): Promise<BrollClip[]> {
+  return productionType === "long"
+    ? fetchLandscapeClips(keywords, perPage)
+    : fetchPortraitClips(keywords, perPage);
 }
 
 function normalizeKeywords(keywords: string[]): string[] {

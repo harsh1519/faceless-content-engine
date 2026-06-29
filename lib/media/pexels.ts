@@ -33,6 +33,21 @@ export async function fetchPortraitClips(
   keywords: string[],
   perPage = 5
 ): Promise<BrollClip[]> {
+  return fetchPexelsClips(keywords, perPage, "portrait");
+}
+
+export async function fetchLandscapeClips(
+  keywords: string[],
+  perPage = 5
+): Promise<BrollClip[]> {
+  return fetchPexelsClips(keywords, perPage, "landscape");
+}
+
+async function fetchPexelsClips(
+  keywords: string[],
+  perPage = 5,
+  orientation: "portrait" | "landscape" = "portrait"
+): Promise<BrollClip[]> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) {
     throw new Error("PEXELS_API_KEY is not configured");
@@ -45,7 +60,7 @@ export async function fetchPortraitClips(
 
   const params = new URLSearchParams({
     query,
-    orientation: "portrait",
+    orientation,
     per_page: String(perPage),
   });
 
@@ -62,7 +77,10 @@ export async function fetchPortraitClips(
   const clips: BrollClip[] = [];
 
   for (const video of data.videos ?? []) {
-    const file = pickBestPortraitFile(video.video_files);
+    const file =
+      orientation === "landscape"
+        ? pickBestLandscapeFile(video.video_files)
+        : pickBestPortraitFile(video.video_files);
     if (!file) continue;
 
     clips.push({
@@ -79,6 +97,29 @@ export async function fetchPortraitClips(
   }
 
   return clips.sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0));
+}
+
+function pickBestLandscapeFile(
+  files: PexelsVideoFile[]
+): PexelsVideoFile | null {
+  const mp4Landscape = files.filter(
+    (f) =>
+      f.file_type === "video/mp4" &&
+      f.width >= f.height &&
+      f.width >= 1280
+  );
+
+  if (mp4Landscape.length === 0) {
+    return (
+      files.find((f) => f.file_type === "video/mp4" && f.width >= f.height) ??
+      files.find((f) => f.file_type === "video/mp4") ??
+      null
+    );
+  }
+
+  const practicalLandscape = mp4Landscape.filter((f) => f.width <= 1920);
+  const candidates = practicalLandscape.length > 0 ? practicalLandscape : mp4Landscape;
+  return candidates.sort((a, b) => scoreLandscapeFileForDownload(b) - scoreLandscapeFileForDownload(a))[0];
 }
 
 function pickBestPortraitFile(
@@ -114,10 +155,26 @@ function scoreFileForDownload(file: PexelsVideoFile): number {
   return targetHeightScore + verticalScore - qualityPenalty;
 }
 
+function scoreLandscapeFileForDownload(file: PexelsVideoFile): number {
+  const ratio = file.width / Math.max(file.height, 1);
+  const targetWidthScore = 100 - Math.abs(file.width - 1920) / 18;
+  const aspectScore = Math.max(0, 30 - Math.abs(ratio - 16 / 9) * 24);
+  const qualityPenalty = file.width > 1920 ? 25 : 0;
+
+  return targetWidthScore + aspectScore - qualityPenalty;
+}
+
 function scoreClip(file: PexelsVideoFile, duration: number): number {
-  const verticalRatio = file.height / Math.max(file.width, 1);
-  const resolutionScore = Math.max(0, 40 - Math.abs(file.height - 1080) / 24);
-  const verticalScore = Math.min(verticalRatio / 1.75, 1.2) * 30;
+  const isLandscape = file.width >= file.height;
+  const ratio = isLandscape
+    ? file.width / Math.max(file.height, 1)
+    : file.height / Math.max(file.width, 1);
+  const resolutionScore = isLandscape
+    ? Math.max(0, 40 - Math.abs(file.width - 1920) / 36)
+    : Math.max(0, 40 - Math.abs(file.height - 1080) / 24);
+  const aspectScore = isLandscape
+    ? Math.max(0, 30 - Math.abs(ratio - 16 / 9) * 24)
+    : Math.min(ratio / 1.75, 1.2) * 30;
   const durationScore =
     duration >= 2 && duration <= 12
       ? 20
@@ -126,9 +183,11 @@ function scoreClip(file: PexelsVideoFile, duration: number): number {
         : 5;
   const qualityScore =
     file.quality === "hd" || file.quality === "uhd" ? 10 : 4;
-  const hugeFilePenalty = file.height > 1280 ? 25 : 0;
+  const hugeFilePenalty = isLandscape
+    ? file.width > 1920 ? 25 : 0
+    : file.height > 1280 ? 25 : 0;
 
   return Math.round(
-    resolutionScore + verticalScore + durationScore + qualityScore - hugeFilePenalty
+    resolutionScore + aspectScore + durationScore + qualityScore - hugeFilePenalty
   );
 }

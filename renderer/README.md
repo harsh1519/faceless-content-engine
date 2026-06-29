@@ -87,7 +87,7 @@ For each `content_objects` row with `status = 'rendering'`:
 2. **Downloads** B-roll clips from Pexels URLs in `broll_urls`
 3. **Uses** `visual_plan` order when available, falling back to looping B-roll
 4. **Trims** each clip to max **2.5 seconds** fallback pacing or planned beat duration
-5. **Scales/crops** to **1080×1920** (9:16 vertical)
+5. **Scales/crops** by production type: shorts → **1080×1920** (9:16), long-form → **1920×1080** (16:9 YouTube)
 6. **Concatenates** clips, looping if video is shorter than audio
 7. **Burns captions** from the visual plan or script text
 8. **Muxes** audio + captioned video → MP4
@@ -99,7 +99,8 @@ On any error, status is set to **`failed`** (visible in Command Center alerts).
 ## Output
 
 - Storage path: `renders/{video_id}.mp4`
-- Resolution: 1080×1920 @ 30fps
+- Short output: 1080×1920 @ 30fps
+- Long-form output: 1920×1080 @ 30fps
 - Codecs: H.264 + AAC
 
 After a successful render, open the **Content Pipeline** → **Ready / Approve** column to preview and publish.

@@ -71,6 +71,7 @@ export async function POST(
       await fetchContextualBroll({
         visual_plan: visualPlan,
         fallback_keywords: keywords,
+        production_type: "long",
       });
     const videoId = randomUUID();
 

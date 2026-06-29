@@ -34,8 +34,9 @@ const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 30_000);
 const RUN_ONCE = process.argv.includes("--once");
 const RENDER_ENGINE = (process.env.RENDER_ENGINE || "ffmpeg").toLowerCase();
 
-const OUTPUT_WIDTH = 1080;
-const OUTPUT_HEIGHT = 1920;
+let OUTPUT_WIDTH = 1080;
+let OUTPUT_HEIGHT = 1920;
+let ACTIVE_RENDER_PRESET = "short_vertical";
 const MAX_CLIP_SECONDS = Number(process.env.MAX_CLIP_SECONDS || 2.2);
 const MAX_PLANNED_CLIP_SECONDS = Number(process.env.MAX_PLANNED_CLIP_SECONDS || 4.5);
 const DOWNLOAD_TIMEOUT_MS = Number(process.env.DOWNLOAD_TIMEOUT_MS || 30_000);
@@ -96,11 +97,28 @@ function checkFfmpeg() {
 async function fetchRenderingJobs() {
   const { data, error } = await supabase
     .from("content_objects")
-    .select("video_id, script, audio_path, broll_urls, visual_plan, status")
+    .select("video_id, script, audio_path, broll_urls, visual_plan, status, production_type")
     .eq("status", "rendering");
 
   if (error) throw error;
   return data ?? [];
+}
+
+function setRenderPreset(productionType) {
+  if (productionType === "long") {
+    ACTIVE_RENDER_PRESET = "youtube_long";
+    OUTPUT_WIDTH = 1920;
+    OUTPUT_HEIGHT = 1080;
+    return;
+  }
+
+  ACTIVE_RENDER_PRESET = "short_vertical";
+  OUTPUT_WIDTH = 1080;
+  OUTPUT_HEIGHT = 1920;
+}
+
+function isYoutubeLongPreset() {
+  return ACTIVE_RENDER_PRESET === "youtube_long";
 }
 
 async function setStatus(videoId, status) {
@@ -310,6 +328,12 @@ function buildSrt(script, totalSeconds, visualPlan = []) {
 function buildAss(script, totalSeconds, visualPlan = []) {
   const phrases = buildTimedPhrases(script, totalSeconds, visualPlan);
   const events = [];
+  const captionFontSize = isYoutubeLongPreset() ? 42 : 58;
+  const overlayFontSize = isYoutubeLongPreset() ? 34 : 44;
+  const captionMarginV = isYoutubeLongPreset() ? 64 : 178;
+  const overlayMarginV = isYoutubeLongPreset() ? 58 : 122;
+  const captionMarginX = isYoutubeLongPreset() ? 220 : 86;
+  const overlayMarginX = isYoutubeLongPreset() ? 140 : 92;
 
   phrases.forEach((phrase) => {
     const overlay = phrase.overlay_text || shortOverlayFromText(phrase.text);
@@ -335,8 +359,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Arial,58,&H00FFFFFF,&H000000FF,&H00101010,&HAA000000,-1,0,0,0,100,100,0,0,3,3,1,2,86,86,178,1
-Style: Overlay,Arial,44,&H00FFFFFF,&H000000FF,&H00241610,&HBB111111,-1,0,0,0,100,100,1,0,3,2,0,8,92,92,122,1
+Style: Caption,Arial,${captionFontSize},&H00FFFFFF,&H000000FF,&H00101010,&HAA000000,-1,0,0,0,100,100,0,0,3,3,1,2,${captionMarginX},${captionMarginX},${captionMarginV},1
+Style: Overlay,Arial,${overlayFontSize},&H00FFFFFF,&H000000FF,&H00241610,&HBB111111,-1,0,0,0,100,100,1,0,3,2,0,8,${overlayMarginX},${overlayMarginX},${overlayMarginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -764,11 +788,16 @@ async function concatSegments(segmentPaths, outputPath) {
 
 async function muxFinalVideo(videoPath, audioPath, assPath, outputPath, totalSeconds) {
   const escapedAss = assPath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
-  const progressWidth = Math.max(1, OUTPUT_WIDTH - 160);
+  const progressWidth = Math.max(1, OUTPUT_WIDTH - (isYoutubeLongPreset() ? 280 : 160));
+  const bottomPanel = isYoutubeLongPreset()
+    ? `drawbox=x=180:y=${OUTPUT_HEIGHT - 160}:w=${OUTPUT_WIDTH - 360}:h=96:color=black@0.24:t=fill`
+    : "drawbox=x=70:y=1715:w=940:h=190:color=black@0.34:t=fill";
+  const progressY = isYoutubeLongPreset() ? OUTPUT_HEIGHT - 54 : 1840;
+  const progressX = isYoutubeLongPreset() ? 140 : 80;
   const finalFilter = [
-    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.10:t=fill",
-    "drawbox=x=70:y=1715:w=940:h=190:color=black@0.34:t=fill",
-    `drawbox=x=80:y=1840:w='min(${progressWidth},${progressWidth}*t/${Math.max(totalSeconds, 1).toFixed(3)})':h=8:color=white@0.92:t=fill`,
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.08:t=fill",
+    bottomPanel,
+    `drawbox=x=${progressX}:y=${progressY}:w='min(${progressWidth},${progressWidth}*t/${Math.max(totalSeconds, 1).toFixed(3)})':h=6:color=white@0.82:t=fill`,
     `subtitles='${escapedAss}'`,
   ].join(",");
 
@@ -834,7 +863,7 @@ async function renderRemotionVideo({
   };
   const composition = await selectComposition({
     serveUrl,
-    id: "InvideoShort",
+    id: isYoutubeLongPreset() ? "YoutubeLongExplainer" : "InvideoShort",
     inputProps,
   });
 
@@ -915,8 +944,10 @@ async function processJob(job) {
     audio_path: audioPath,
     broll_urls: brollUrls,
     visual_plan: visualPlan,
+    production_type: productionType,
   } = job;
 
+  setRenderPreset(productionType);
   if (!audioPath) throw new Error("Missing audio_path");
 
   const renderVisualPlan = normalizeVisualPlanForRender(visualPlan);
@@ -929,7 +960,7 @@ async function processJob(job) {
   }
 
   const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), `render-${videoId}-`));
-  log(`Processing ${videoId} in ${workDir}`);
+  log(`Processing ${videoId} in ${workDir} (${ACTIVE_RENDER_PRESET} ${OUTPUT_WIDTH}x${OUTPUT_HEIGHT})`);
 
   try {
     const ext = path.extname(audioPath) || ".mp3";
